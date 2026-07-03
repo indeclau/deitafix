@@ -27,9 +27,11 @@ jobs:
           go-version: "1.25"
           cache: true
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # v9 instala golangci-lint v2; se fija una versión construida con go 1.25+
+        # (las anteriores fallan al lintear un módulo con `go 1.25.0`).
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.12.2
 
   test:
     name: Test (${{ matrix.engine }})
