@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/indeclau/deitafix/internal/ai"
 	"github.com/indeclau/deitafix/internal/engine"
 	"github.com/indeclau/deitafix/internal/guard"
 	"github.com/indeclau/deitafix/internal/store"
@@ -22,15 +23,38 @@ type Service struct {
 	store     *store.Store
 	whitelist []string
 	maxRows   int64
+
+	// ai es la capa de IA (opcional). Nunca es nil: cuando no hay AI_API_KEY es
+	// un cliente disabled (noop) cuyo Enabled() devuelve false. Solo propone;
+	// jamás ejecuta ni llega a confirm.
+	ai ai.Client
+
+	// schema es el cache de introspección de esquema para NL → SQL. Puede ser
+	// nil (motor sin introspección o IA apagada): en ese caso el modelo trabaja
+	// solo con la intención.
+	schema *engine.SchemaCache
 }
 
-// NewService construye el Service con sus dependencias.
+// NewService construye el Service con la capa de IA deshabilitada (noop). Es el
+// camino histórico usado por los tests que no ejercitan IA.
 func NewService(eng engine.Engine, st *store.Store, whitelist []string, maxRows int64) *Service {
+	return NewServiceWithAI(eng, st, whitelist, maxRows, ai.NewDisabled(), nil)
+}
+
+// NewServiceWithAI construye el Service con una capa de IA explícita y un cache
+// de esquema opcional. El entrypoint lo usa para inyectar el cliente real o el
+// disabled según haya o no AI_API_KEY.
+func NewServiceWithAI(eng engine.Engine, st *store.Store, whitelist []string, maxRows int64, aiClient ai.Client, schema *engine.SchemaCache) *Service {
+	if aiClient == nil {
+		aiClient = ai.NewDisabled()
+	}
 	return &Service{
 		engine:    eng,
 		store:     st,
 		whitelist: whitelist,
 		maxRows:   maxRows,
+		ai:        aiClient,
+		schema:    schema,
 	}
 }
 
@@ -39,6 +63,11 @@ type PreviewResult struct {
 	Token        string
 	AffectedRows int64
 	Summary      string
+
+	// AI es el enriquecimiento de IA (explicación + riesgo + flags). Es nil
+	// cuando la IA está deshabilitada, se pidió omitir (ai:false) o falló: en
+	// todos esos casos el resto del PreviewResult queda intacto.
+	AI *AIInsight
 }
 
 // ConfirmResult es lo que devuelve un confirm exitoso.
@@ -54,25 +83,33 @@ type ConfirmResult struct {
 //   - rawSQL: SQL crudo provisto por el cliente (pasa por las guardas completas).
 //   - op: una operación acotada que el servicio traduce a SQL parametrizado.
 //
+// aiEnabled pide (además) el enriquecimiento de IA best-effort. Aun cuando es
+// true, la IA es opcional y aislada: si está apagada o falla, el resto del
+// PreviewResult queda intacto. Pasar false lo omite del todo (para no pagar
+// latencia/costo cuando no se quiere).
+//
 // Devuelve un token de un solo uso para el confirm posterior.
-func (s *Service) Preview(ctx context.Context, rawSQL string, op *engine.BoundedOp) (PreviewResult, error) {
-	return s.preview(ctx, rawSQL, op, store.OriginUI)
+func (s *Service) Preview(ctx context.Context, rawSQL string, op *engine.BoundedOp, aiEnabled bool) (PreviewResult, error) {
+	return s.preview(ctx, rawSQL, op, store.OriginUI, aiEnabled)
 }
 
 // PreviewMCP es el preview del agente (origin=mcp): mismas guardas, mismo
 // preview con ROLLBACK, mismo store. La única diferencia es el origen del token,
 // que hace que NUNCA se pueda ejecutar con la credencial del agente: queda a la
 // espera de aprobación humana. Es el mismo camino seguro que la superficie
-// humana, sin ningún atajo.
+// humana, sin ningún atajo. No enriquece con IA (el agente no consume ese
+// bloque; la aprobación la mira un humano por la superficie humana).
 func (s *Service) PreviewMCP(ctx context.Context, rawSQL string, op *engine.BoundedOp) (PreviewResult, error) {
-	return s.preview(ctx, rawSQL, op, store.OriginMCP)
+	return s.preview(ctx, rawSQL, op, store.OriginMCP, false)
 }
 
 // preview es el núcleo compartido del preview para ambas superficies (humana y
-// MCP). El origen es lo único que varía: las guardas, la medición de impacto en
-// transacción con ROLLBACK y el tope de filas son idénticos, para que un agente
-// no pueda saltear ninguna salvaguarda.
-func (s *Service) preview(ctx context.Context, rawSQL string, op *engine.BoundedOp, origin store.Origin) (PreviewResult, error) {
+// MCP). El origen es lo único que varía en la ruta segura: las guardas, la
+// medición de impacto en transacción con ROLLBACK y el tope de filas son
+// idénticos, para que un agente no pueda saltear ninguna salvaguarda. El
+// enriquecimiento de IA es un extra best-effort al final, que NO afecta esa
+// ruta.
+func (s *Service) preview(ctx context.Context, rawSQL string, op *engine.BoundedOp, origin store.Origin, aiEnabled bool) (PreviewResult, error) {
 	sql, args, err := s.resolveSQL(rawSQL, op)
 	if err != nil {
 		return PreviewResult{}, err
@@ -85,6 +122,8 @@ func (s *Service) preview(ctx context.Context, rawSQL string, op *engine.Bounded
 	}
 
 	// 2. Guardas de sentencia (operación, WHERE, INSERT..SELECT, whitelist).
+	//    ESTA es la barrera: se aplica idéntica al SQL humano y al generado por
+	//    IA (que llega acá como rawSQL, ya sin distinción de origen).
 	if err := guard.Check(stmt, s.whitelist); err != nil {
 		return PreviewResult{}, err
 	}
@@ -112,11 +151,20 @@ func (s *Service) preview(ctx context.Context, rawSQL string, op *engine.Bounded
 		return PreviewResult{}, fmt.Errorf("api: guardando token: %w", err)
 	}
 
-	return PreviewResult{
+	res := PreviewResult{
 		Token:        token,
 		AffectedRows: affected,
 		Summary:      summarize(stmt.Op, stmt.Table, affected),
-	}, nil
+	}
+
+	// 6. Enriquecimiento de IA best-effort y AISLADO. Ya tenemos token +
+	//    affected_rows: pase lo que pase con la IA, el preview es válido. Un
+	//    fallo o timeout de IA devuelve AI=nil, nunca rompe la respuesta.
+	if aiEnabled {
+		res.AI = s.enrichPreview(ctx, sql, stmt, affected)
+	}
+
+	return res, nil
 }
 
 // Ready comprueba que el servicio puede alcanzar la base con el usuario

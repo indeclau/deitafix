@@ -111,6 +111,56 @@ func (m *MySQL) Close() error {
 	return m.db.Close()
 }
 
+// Columns implementa engine.Introspector para MySQL/MariaDB: lee
+// information_schema.columns acotado a la base actual (DATABASE()) y a las
+// tablas pedidas (las de la whitelist), con un IN (?, ?, ...) parametrizado.
+// Solo aparecen tablas visibles para el usuario restringido; no ejecuta ninguna
+// escritura.
+func (m *MySQL) Columns(ctx context.Context, tables []string) (map[string][]ColumnInfo, error) {
+	out := make(map[string][]ColumnInfo, len(tables))
+	if len(tables) == 0 {
+		return out, nil
+	}
+
+	// Placeholders posicionales para el IN; los nombres de tabla van como args,
+	// nunca interpolados.
+	placeholders := make([]string, len(tables))
+	args := make([]any, 0, len(tables))
+	for i, t := range tables {
+		placeholders[i] = "?"
+		args = append(args, t)
+	}
+
+	// La única parte "dinámica" de la query es la lista de placeholders "?"
+	// (uno por tabla), generada por el código de arriba; NO hay ningún valor de
+	// entrada interpolado. Los nombres de tabla viajan como args parametrizados.
+	// Por eso no hay inyección posible. database/sql no admite un slice como
+	// parámetro de IN, de ahí la construcción del IN con N placeholders.
+	q := "SELECT table_name, column_name, data_type " +
+		"FROM information_schema.columns " +
+		"WHERE table_schema = DATABASE() AND table_name IN (" +
+		strings.Join(placeholders, ", ") + ") " +
+		"ORDER BY table_name, ordinal_position"
+
+	rows, err := m.db.QueryContext(ctx, q, args...) // NOSONAR go:S2077 — solo placeholders "?" fijos; nombres de tabla parametrizados, sin interpolación.
+	if err != nil {
+		return nil, fmt.Errorf("mysql: introspección de esquema: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var table, col, typ string
+		if err := rows.Scan(&table, &col, &typ); err != nil {
+			return nil, fmt.Errorf("mysql: leyendo esquema: %w", err)
+		}
+		out[table] = append(out[table], ColumnInfo{Name: col, Type: typ})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("mysql: iterando esquema: %w", err)
+	}
+	return out, nil
+}
+
 // normalizeMySQLDSN convierte una URL mysql://user:pass@host:port/db al DSN que
 // espera go-sql-driver (user:pass@tcp(host:port)/db). Si ya es un DSN nativo,
 // lo devuelve tal cual. En ambos casos fuerza parseTime para leer fechas.

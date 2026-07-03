@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Defaults de configuración cuando la variable no está seteada.
@@ -19,6 +20,7 @@ const (
 	defaultPort            = "8080"
 	defaultMaxAffectedRows = 50
 	defaultMCPPath         = "/mcp"
+	defaultAITimeout       = 15 * time.Second
 )
 
 // Config es la configuración efectiva del servicio, ya validada.
@@ -70,7 +72,28 @@ type Config struct {
 	// en el origen del token—; es una capa extra de defensa en profundidad. Si
 	// está vacío, la superficie humana no exige bearer (comportamiento v0.1–v0.3).
 	UIAuthToken string
+
+	// AIAPIKey habilita OPCIONALMENTE la capa de IA (AI_API_KEY). Si está vacía,
+	// la IA degrada de forma limpia: el resto del servicio funciona idéntico y la
+	// capa de IA simplemente no se ofrece. La IA solo propone; nunca ejecuta.
+	AIAPIKey string
+
+	// AIModel es el modelo a usar (AI_MODEL). Si está vacío, se usa el default
+	// documentado en el paquete ai (constante DefaultModel).
+	AIModel string
+
+	// AIBaseURL overridea OPCIONALMENTE el endpoint del proveedor (AI_BASE_URL).
+	// Si está vacío, se usa el default de Anthropic.
+	AIBaseURL string
+
+	// AITimeout es el timeout por request de IA (AI_TIMEOUT), independiente del
+	// timeout de la base. Default ~15s.
+	AITimeout time.Duration
 }
+
+// AIEnabled indica si la capa de IA está configurada (hay AI_API_KEY). El
+// entrypoint lo usa para decidir qué cliente instanciar (real vs disabled).
+func (c Config) AIEnabled() bool { return c.AIAPIKey != "" }
 
 // Load construye la Config a partir del entorno y la valida.
 //
@@ -121,7 +144,39 @@ func Load() (Config, error) {
 
 	cfg.UIAuthToken = strings.TrimSpace(os.Getenv("UI_AUTH_TOKEN"))
 
+	if err := loadAI(&cfg); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+// loadAI lee y valida la configuración de la capa de IA.
+//
+// Degradación limpia, consistente con DATAFIX_ENABLED / MCP_ENABLED: si no hay
+// AI_API_KEY, la capa queda apagada y el resto del servicio intacto (sin
+// endpoints IA rotos, sin logs en loop). A diferencia de MCP, la ausencia de
+// clave NO es un error: es el modo degradado esperado. Solo se falla el arranque
+// si un valor presente es inválido (AI_TIMEOUT no parseable), para no arrancar
+// con una config silenciosamente rota.
+func loadAI(cfg *Config) error {
+	cfg.AIAPIKey = strings.TrimSpace(os.Getenv("AI_API_KEY"))
+	cfg.AIModel = strings.TrimSpace(os.Getenv("AI_MODEL"))
+	cfg.AIBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AI_BASE_URL")), "/")
+
+	cfg.AITimeout = defaultAITimeout
+	if v := strings.TrimSpace(os.Getenv("AI_TIMEOUT")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("config: AI_TIMEOUT inválido %q: %w", v, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("config: AI_TIMEOUT debe ser positivo, got %s", d)
+		}
+		cfg.AITimeout = d
+	}
+
+	return nil
 }
 
 // loadMCP lee y valida la configuración de la capa MCP.

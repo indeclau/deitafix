@@ -91,3 +91,40 @@ func (p *Postgres) Close() error {
 	p.pool.Close()
 	return nil
 }
+
+// Columns implementa engine.Introspector para Postgres: lee information_schema
+// acotado a las tablas pedidas (las de la whitelist). Solo devuelve columnas de
+// tablas que el usuario restringido puede ver; una tabla sin permiso o
+// inexistente simplemente no aparece. No ejecuta ninguna escritura.
+func (p *Postgres) Columns(ctx context.Context, tables []string) (map[string][]ColumnInfo, error) {
+	out := make(map[string][]ColumnInfo, len(tables))
+	if len(tables) == 0 {
+		return out, nil
+	}
+
+	// Acotado EXACTAMENTE a las tablas pasadas con = ANY($1); nada de leer toda
+	// la base. Ordenado para una salida determinista.
+	const q = `
+		SELECT table_name, column_name, data_type
+		FROM information_schema.columns
+		WHERE table_name = ANY($1)
+		ORDER BY table_name, ordinal_position`
+
+	rows, err := p.pool.Query(ctx, q, tables)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: introspección de esquema: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var table, col, typ string
+		if err := rows.Scan(&table, &col, &typ); err != nil {
+			return nil, fmt.Errorf("postgres: leyendo esquema: %w", err)
+		}
+		out[table] = append(out[table], ColumnInfo{Name: col, Type: typ})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: iterando esquema: %w", err)
+	}
+	return out, nil
+}

@@ -77,7 +77,7 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 		before := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = 0", fx.tbl))
 
 		res, err := svc.Preview(ctx,
-			fmt.Sprintf(`UPDATE %s SET status = 1 WHERE id > 0`, fx.tbl), nil)
+			fmt.Sprintf(`UPDATE %s SET status = 1 WHERE id > 0`, fx.tbl), nil, false)
 		if err != nil {
 			t.Fatalf("preview: %v", err)
 		}
@@ -94,7 +94,7 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 	t.Run("affected_rows correcto", func(t *testing.T) {
 		// status = 0 en 2 de las 3 filas del seed.
 		res, err := svc.Preview(ctx,
-			fmt.Sprintf(`UPDATE %s SET status = 9 WHERE status = 0`, fx.tbl), nil)
+			fmt.Sprintf(`UPDATE %s SET status = 9 WHERE status = 0`, fx.tbl), nil, false)
 		if err != nil {
 			t.Fatalf("preview: %v", err)
 		}
@@ -106,7 +106,7 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 	t.Run("confirm hace COMMIT (persiste)", func(t *testing.T) {
 		// Cambiamos la fila id=1 a un status distintivo y confirmamos.
 		res, err := svc.Preview(ctx,
-			fmt.Sprintf(`UPDATE %s SET status = 777 WHERE id = 1`, fx.tbl), nil)
+			fmt.Sprintf(`UPDATE %s SET status = 777 WHERE id = 1`, fx.tbl), nil, false)
 		if err != nil {
 			t.Fatalf("preview: %v", err)
 		}
@@ -131,7 +131,7 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 			Set:   map[string]any{"status": 555},
 			Where: map[string]any{"id": 2},
 		}
-		res, err := svc.Preview(ctx, "", op)
+		res, err := svc.Preview(ctx, "", op, false)
 		if err != nil {
 			t.Fatalf("preview acotado: %v", err)
 		}
@@ -158,7 +158,7 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 		}
 
 		_, err := permissive.Preview(ctx,
-			fmt.Sprintf(`UPDATE %s SET note = 'x' WHERE id = 1`, auditTbl), nil)
+			fmt.Sprintf(`UPDATE %s SET note = 'x' WHERE id = 1`, auditTbl), nil, false)
 		if err == nil {
 			t.Fatal("se esperaba permission denied de la base, got nil")
 		}

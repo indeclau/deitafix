@@ -50,10 +50,10 @@ Hacer seguro que un agente de IA toque producción.
 
 ## v0.5.0 — Features LLM
 
-- [ ] NL → SQL: propone la sentencia candidata, que pasa por las guardas + preview
-- [ ] Explicación de impacto en el preview (lenguaje claro + señal de riesgo)
-- [ ] Revisor IA: marca patrones sospechosos
-- [ ] Degradación limpia si no hay `AI_API_KEY`
+- [x] NL → SQL: propone la sentencia candidata, que pasa por las guardas + preview
+- [x] Explicación de impacto en el preview (lenguaje claro + señal de riesgo)
+- [x] Revisor IA: marca patrones sospechosos
+- [x] Degradación limpia si no hay `AI_API_KEY`
 
 ## v1.0.0 — Endurecimiento y release estable
 
