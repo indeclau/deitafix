@@ -99,6 +99,13 @@ func (s *Service) Preview(ctx context.Context, rawSQL string, op *engine.Bounded
 	}, nil
 }
 
+// Ready comprueba que el servicio puede alcanzar la base con el usuario
+// restringido. Lo usa la probe de readiness (/readyz); no ejecuta ninguna
+// operación de negocio.
+func (s *Service) Ready(ctx context.Context) error {
+	return s.engine.Ping(ctx)
+}
+
 // Confirm ejecuta y persiste la operación asociada a un token de un solo uso.
 // El token se invalida al recuperarlo, aunque la ejecución falle.
 func (s *Service) Confirm(ctx context.Context, token string) (ConfirmResult, error) {

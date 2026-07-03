@@ -78,6 +78,14 @@ func (p *Postgres) Confirm(ctx context.Context, sql string, args ...any) (int64,
 	return tag.RowsAffected(), nil
 }
 
+// Ping verifica la conectividad con la base. Lo usa la probe de readiness.
+func (p *Postgres) Ping(ctx context.Context) error {
+	if err := p.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("postgres: ping: %w", err)
+	}
+	return nil
+}
+
 // Close cierra el pool.
 func (p *Postgres) Close() error {
 	p.pool.Close()
