@@ -19,6 +19,9 @@ spec:
       labels:
         app.kubernetes.io/name: deitafix
     spec:
+      # El servicio no llama a la API de Kubernetes: no montamos el token de la
+      # service account (menos superficie si el Pod se ve comprometido).
+      automountServiceAccountToken: false
       # A nivel Pod: nunca root. El uid 65532 es el usuario nonroot de la imagen
       # distroless.
       securityContext:
@@ -74,9 +77,11 @@ spec:
             requests:
               cpu: "50m"
               memory: "64Mi"
+              ephemeral-storage: "64Mi"
             limits:
               cpu: "500m"
               memory: "128Mi"
+              ephemeral-storage: "256Mi"
           # A nivel contenedor: FS raíz de solo lectura (el estado vive en
           # memoria), sin escalada de privilegios, sin capabilities.
           securityContext:
