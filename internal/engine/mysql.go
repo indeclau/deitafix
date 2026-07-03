@@ -131,13 +131,18 @@ func (m *MySQL) Columns(ctx context.Context, tables []string) (map[string][]Colu
 		args = append(args, t)
 	}
 
+	// La única parte "dinámica" de la query es la lista de placeholders "?"
+	// (uno por tabla), generada por el código de arriba; NO hay ningún valor de
+	// entrada interpolado. Los nombres de tabla viajan como args parametrizados.
+	// Por eso no hay inyección posible. database/sql no admite un slice como
+	// parámetro de IN, de ahí la construcción del IN con N placeholders.
 	q := "SELECT table_name, column_name, data_type " +
 		"FROM information_schema.columns " +
 		"WHERE table_schema = DATABASE() AND table_name IN (" +
 		strings.Join(placeholders, ", ") + ") " +
 		"ORDER BY table_name, ordinal_position"
 
-	rows, err := m.db.QueryContext(ctx, q, args...)
+	rows, err := m.db.QueryContext(ctx, q, args...) // NOSONAR go:S2077 — solo placeholders "?" fijos; nombres de tabla parametrizados, sin interpolación.
 	if err != nil {
 		return nil, fmt.Errorf("mysql: introspección de esquema: %w", err)
 	}
