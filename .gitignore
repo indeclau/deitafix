@@ -11,6 +11,8 @@ go.work.sum
 # Entorno / secretos
 .env
 .env.local
+# Secret real de Kubernetes (se crea a partir de k8s/secret.example.yaml).
+k8s/secret.yaml
 
 # IDE / OS
 .idea/

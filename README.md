@@ -66,24 +66,40 @@ Toda sugerencia de la IA pasa por **las mismas guardas y el mismo preview → co
 
 ## Quickstart (Docker)
 
+La imagen se publica en GHCR al taggear una versión. Corré la última así (PowerShell):
+
 ```powershell
 docker run --rm `
   -p 8080:8080 `
   -e DATABASE_URL="postgres://prod_datafix:CAMBIAR@host:5432/midb" `
+  -e DEITAFIX_ENGINE="postgres" `
   -e DATAFIX_ENABLED="true" `
   -e MAX_AFFECTED_ROWS="50" `
-  Deitafix:latest
+  -e TABLE_WHITELIST="CollectionBox" `
+  ghcr.io/indeclau/deitafix:latest
 ```
 
-Abrí `http://localhost:8080` para la UI, o usá la API directamente.
+> El nombre de la imagen va en **minúscula** (`deitafix`), como exige GHCR.
+
+Comprobá que está viva y lista, y probá la API:
+
+```powershell
+# Liveness (no toca la base) y readiness (hace ping a la base):
+curl.exe http://localhost:8080/healthz
+curl.exe http://localhost:8080/readyz
+```
+
+Abrí `http://localhost:8080` para la UI, o usá la API directamente (más abajo).
 
 ### Variables de entorno
 
 | Variable | Descripción |
 |---|---|
 | `DATABASE_URL` | Conexión con el usuario **restringido** (nunca el de la app) |
+| `DEITAFIX_ENGINE` | Motor: `postgres` \| `mysql`. Si se omite, se infiere de `DATABASE_URL` |
 | `DATAFIX_ENABLED` | Feature flag. `false` deja el servicio apagado |
 | `MAX_AFFECTED_ROWS` | Tope de filas; si se supera, aborta |
+| `TABLE_WHITELIST` | Tablas permitidas, separadas por coma (además de la contención en la base) |
 | `AI_API_KEY` | *(Opcional)* habilita la capa de IA |
 
 ---
@@ -91,17 +107,19 @@ Abrí `http://localhost:8080` para la UI, o usá la API directamente.
 ## Ejemplo de uso (API)
 
 ```powershell
-# 1. Preview: valida, mide impacto, devuelve token
-curl -X POST http://localhost:8080/preview `
-  -H "Content-Type: application/json" `
-  -d '{"engine":"postgres","sql":"UPDATE \"CollectionBox\" SET status = 1 WHERE id = 42"}'
+# 1. Preview: valida, mide impacto, devuelve token.
+$preview = Invoke-RestMethod -Method Post -Uri http://localhost:8080/preview `
+  -ContentType "application/json" `
+  -Body '{"sql":"UPDATE \"CollectionBox\" SET status = 1 WHERE id = 42"}'
+$preview
+# token affected_rows summary
+# ----- ------------- -------
+# abc123             1 UPDATE sobre "CollectionBox" afectaría 1 fila(s)...
 
-# Respuesta: { "token": "abc123", "affected_rows": 1, "summary": "..." }
-
-# 2. Confirm: ejecuta solo el token
-curl -X POST http://localhost:8080/confirm `
-  -H "Content-Type: application/json" `
-  -d '{"token":"abc123"}'
+# 2. Confirm: ejecuta SOLO el token (nunca SQL nuevo).
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/confirm `
+  -ContentType "application/json" `
+  -Body (@{ token = $preview.token } | ConvertTo-Json)
 ```
 
 ---
@@ -119,6 +137,27 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_datafix;
 ```
 
 **Whitelist, nunca blacklist.** Nombrás una por una las tablas que se pueden tocar. Sin DDL, sin `DROP`, sin `TRUNCATE`.
+
+---
+
+## Despliegue en Kubernetes
+
+En [`k8s/`](k8s/) hay manifiestos mínimos: `Deployment`, `Service` (ClusterIP al 8080) y un `Secret` de ejemplo.
+
+```powershell
+# 1. Copiá el Secret de ejemplo y completá los valores reales.
+#    DATABASE_URL debe usar el usuario RESTRINGIDO (nunca el de la app).
+Copy-Item k8s/secret.example.yaml k8s/secret.yaml
+#    editá k8s/secret.yaml con tu editor...
+
+# 2. Aplicá el Secret (con valores reales) y el resto de los manifiestos.
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
+```
+
+El `Deployment` usa `livenessProbe` → `/healthz` y `readinessProbe` → `/readyz`, corre como usuario **nonroot** con el filesystem raíz de solo lectura, y toma la imagen de `ghcr.io/indeclau/deitafix`. Ajustá el tag a la versión que quieras desplegar.
+
+> `secret.example.yaml` solo trae placeholders. El `secret.yaml` con credenciales reales **no se commitea**.
 
 ---
 
