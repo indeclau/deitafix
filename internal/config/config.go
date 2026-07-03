@@ -1,3 +1,6 @@
+// Copyright 2026 indeclau. Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the repository root for the full license text.
+
 // Package config carga la configuración del servicio desde el entorno.
 //
 // Todas las opciones se leen de variables de entorno para que el binario sea

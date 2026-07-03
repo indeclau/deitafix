@@ -1,3 +1,6 @@
+// Copyright 2026 indeclau. Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the repository root for the full license text.
+
 // Package store implementa el estado en memoria del flujo preview → confirm.
 //
 // Entre el preview y el confirm, el servicio guarda la sentencia ya validada

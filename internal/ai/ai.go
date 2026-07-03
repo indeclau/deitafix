@@ -1,3 +1,6 @@
+// Copyright 2026 indeclau. Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the repository root for the full license text.
+
 // Package ai es la capa de IA opcional de Deitafix: NL → SQL, explicación de
 // impacto y revisor de sentencias. Es estrictamente "la IA solo propone": todo
 // lo que produce este paquete vuelve a pasar por las mismas guardas y el mismo
