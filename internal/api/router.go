@@ -12,6 +12,7 @@ import (
 
 	"github.com/indeclau/deitafix/internal/engine"
 	"github.com/indeclau/deitafix/internal/guard"
+	"github.com/indeclau/deitafix/internal/mcp"
 	"github.com/indeclau/deitafix/internal/store"
 	"github.com/indeclau/deitafix/internal/ui"
 )
@@ -26,29 +27,81 @@ type Handler struct {
 	enabled bool
 }
 
-// NewRouter construye el router chi con las rutas del servicio.
-//
-// enabled es el feature flag (DATAFIX_ENABLED): si es false, las rutas de
-// escritura responden 503 sin tocar la base.
-func NewRouter(svc *Service, enabled bool) http.Handler {
-	h := &Handler{svc: svc, enabled: enabled}
+// RouterConfig son las opciones para construir el router, más allá del servicio.
+type RouterConfig struct {
+	// Enabled es el feature flag maestro (DATAFIX_ENABLED): si es false, las
+	// rutas de escritura responden 503 sin tocar la base.
+	Enabled bool
+
+	// MCPEnabled habilita la capa MCP. Si es false, el endpoint MCP no se
+	// registra y el resto del servicio queda intacto.
+	MCPEnabled bool
+
+	// MCPAuthToken es el bearer que protege el endpoint MCP. Requerido si
+	// MCPEnabled es true (lo garantiza config.Load).
+	MCPAuthToken string
+
+	// MCPPath es la ruta donde se monta el endpoint MCP (default /mcp).
+	MCPPath string
+
+	// MCPApprovalBaseURL es la base pública para la approval_url que devuelve la
+	// herramienta MCP confirm. Puede quedar vacía (URL relativa).
+	MCPApprovalBaseURL string
+
+	// UIAuthToken protege OPCIONALMENTE la superficie humana (confirm +
+	// aprobaciones + UI). Si está vacío, no se exige bearer.
+	UIAuthToken string
+}
+
+// NewRouter construye el router chi con las rutas del servicio, incluyendo la
+// capa MCP y la superficie de aprobación humana.
+func NewRouter(svc *Service, cfg RouterConfig) http.Handler {
+	h := &Handler{svc: svc, enabled: cfg.Enabled}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
-	// Probes: no dependen del feature flag.
+	// Probes: no dependen del feature flag ni de ninguna auth.
 	//   /healthz — liveness: el proceso está vivo, sin tocar la base.
 	//   /readyz  — readiness: la base es alcanzable con el usuario restringido.
 	r.Get("/healthz", h.healthz)
 	r.Get("/readyz", h.readyz)
 
-	// Rutas de escritura, detrás del feature flag.
+	// --- Superficie MCP (agente) ---
+	// Endpoint separado, protegido por su propio bearer (MCP_AUTH_TOKEN). Solo
+	// permite preview y SOLICITAR confirmación; nunca ejecuta. Va detrás del
+	// feature flag también: si el servicio está apagado, el agente tampoco opera.
+	if cfg.MCPEnabled {
+		mcpSrv := mcp.NewServer(&mcpCore{svc: svc}, mcp.Config{
+			ApprovalBaseURL: cfg.MCPApprovalBaseURL,
+		})
+		mcpHandler := mcp.NewStreamableHandler(mcpSrv)
+		r.Group(func(r chi.Router) {
+			r.Use(h.requireEnabled)
+			r.Use(bearerAuth(cfg.MCPAuthToken))
+			r.Handle(cfg.MCPPath, mcpHandler)
+			r.Handle(cfg.MCPPath+"/*", mcpHandler)
+		})
+	}
+
+	// --- Superficie humana (UI / API) ---
+	// preview + confirm + aprobaciones. Detrás del feature flag y, opcionalmente,
+	// de UI_AUTH_TOKEN (defensa en profundidad: la credencial MCP no la alcanza).
+	// El confirm humano rechaza tokens origin=mcp con 409: esos van por aprobación.
 	r.Group(func(r chi.Router) {
 		r.Use(h.requireEnabled)
+		if cfg.UIAuthToken != "" {
+			r.Use(bearerAuth(cfg.UIAuthToken))
+		}
 		r.Post("/preview", h.preview)
 		r.Post("/confirm", h.confirm)
+
+		// Aprobación humana de propuestas del agente (origin=mcp).
+		r.Get("/pending", h.listPending)
+		r.Post("/pending/{token}/approve", h.approve)
+		r.Post("/pending/{token}/reject", h.reject)
 	})
 
 	// UI web embebida. Va fuera del feature flag a propósito: si el servicio
@@ -58,7 +111,8 @@ func NewRouter(svc *Service, enabled bool) http.Handler {
 	//
 	// Se monta al final como catch-all ("/*") para que las rutas de la API
 	// registradas arriba (mismo prefijo raíz) tengan prioridad; la UI sirve
-	// "/" (index) y "/static/*" (Alpine.js), y 404 para el resto.
+	// "/" (index), "/pending" (aprobaciones) y "/static/*" (Alpine.js), y 404
+	// para el resto.
 	r.Handle("/*", ui.Handler(svc.Engine()))
 
 	return r
@@ -212,11 +266,16 @@ func toBoundedOp(req *boundedOpRequest) (engine.BoundedOp, error) {
 
 // statusForError mapea los errores conocidos a códigos HTTP. Los rechazos por
 // guardas son 422 (entrada válida sintácticamente pero no permitida); el token
-// inexistente/expirado es 404; el resto, 500.
+// inexistente/expirado es 404; un token en el estado equivocado (p. ej. mcp por
+// el confirm humano, o aprobar algo no pendiente) es 409; el resto, 500.
 func statusForError(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, ErrMCPRequiresApproval),
+		errors.Is(err, ErrConfirmNotMCP),
+		errors.Is(err, store.ErrWrongState):
+		return http.StatusConflict
 	case errors.Is(err, ErrEmptyInput),
 		errors.Is(err, ErrAmbiguousInput),
 		errors.Is(err, guard.ErrEmptySQL),

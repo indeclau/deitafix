@@ -96,3 +96,120 @@ func TestTokensAreUnique(t *testing.T) {
 		seen[token] = true
 	}
 }
+
+// --- Origin y máquina de estados (flujo MCP) ---
+
+func TestPutDefaultsToUIOrigin(t *testing.T) {
+	s, _ := newTestStore(time.Minute)
+	token, _ := s.Put(Entry{SQL: "UPDATE x SET a=1 WHERE id=1"})
+	got, err := s.Take(token)
+	if err != nil {
+		t.Fatalf("Take: %v", err)
+	}
+	if got.Origin != OriginUI {
+		t.Fatalf("Put debía marcar origin=ui, got %q", got.Origin)
+	}
+}
+
+func TestMCPApprovalFlow(t *testing.T) {
+	s, _ := newTestStore(time.Minute)
+	token, _ := s.PutWithOrigin(Entry{
+		SQL: "UPDATE x SET a=1 WHERE id=1", Op: "UPDATE", Table: "x", AffectedRows: 1,
+	}, OriginMCP)
+
+	// Aún no está pendiente: no aparece en la lista ni es aprobable.
+	if len(s.ListPending()) != 0 {
+		t.Fatal("un token en previewed no debía estar en la lista de pendientes")
+	}
+	if _, err := s.Approve(token); !errors.Is(err, ErrWrongState) {
+		t.Fatalf("Approve en previewed = %v, want ErrWrongState", err)
+	}
+
+	// Solicitar aprobación: pasa a pending_approval sin consumirse.
+	if _, err := s.RequestApproval(token); err != nil {
+		t.Fatalf("RequestApproval: %v", err)
+	}
+	pend := s.ListPending()
+	if len(pend) != 1 || pend[0].Token != token {
+		t.Fatalf("ListPending inesperado: %+v", pend)
+	}
+	if pend[0].Op != "UPDATE" || pend[0].Table != "x" || pend[0].AffectedRows != 1 {
+		t.Fatalf("datos del pendiente inesperados: %+v", pend[0])
+	}
+
+	// Peek no consume.
+	if _, err := s.Peek(token); err != nil {
+		t.Fatalf("Peek: %v", err)
+	}
+	if len(s.ListPending()) != 1 {
+		t.Fatal("Peek no debía consumir el token")
+	}
+
+	// Approve consume y devuelve la entry.
+	entry, err := s.Approve(token)
+	if err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if entry.SQL != "UPDATE x SET a=1 WHERE id=1" {
+		t.Fatalf("entry aprobada inesperada: %+v", entry)
+	}
+	// Consumido: no reaprobable ni listado.
+	if _, err := s.Approve(token); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("segundo Approve = %v, want ErrNotFound", err)
+	}
+	if len(s.ListPending()) != 0 {
+		t.Fatal("el token aprobado no debía seguir listado")
+	}
+}
+
+func TestRequestApprovalTwiceFails(t *testing.T) {
+	s, _ := newTestStore(time.Minute)
+	token, _ := s.PutWithOrigin(Entry{SQL: "x"}, OriginMCP)
+	if _, err := s.RequestApproval(token); err != nil {
+		t.Fatalf("primer RequestApproval: %v", err)
+	}
+	if _, err := s.RequestApproval(token); !errors.Is(err, ErrWrongState) {
+		t.Fatalf("segundo RequestApproval = %v, want ErrWrongState", err)
+	}
+}
+
+func TestRejectConsumesPending(t *testing.T) {
+	s, _ := newTestStore(time.Minute)
+	token, _ := s.PutWithOrigin(Entry{SQL: "x"}, OriginMCP)
+	_, _ = s.RequestApproval(token)
+
+	if _, err := s.Reject(token); err != nil {
+		t.Fatalf("Reject: %v", err)
+	}
+	if _, err := s.Approve(token); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Approve tras Reject = %v, want ErrNotFound", err)
+	}
+}
+
+func TestExpiredTokenNotApprovable(t *testing.T) {
+	s, clock := newTestStore(time.Minute)
+	token, _ := s.PutWithOrigin(Entry{SQL: "x"}, OriginMCP)
+	_, _ = s.RequestApproval(token)
+
+	*clock = clock.Add(2 * time.Minute)
+
+	if _, err := s.Approve(token); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Approve de token expirado = %v, want ErrNotFound", err)
+	}
+	if len(s.ListPending()) != 0 {
+		t.Fatal("un token expirado no debía aparecer en la lista")
+	}
+}
+
+func TestListPendingOnlyMCP(t *testing.T) {
+	s, _ := newTestStore(time.Minute)
+	// Un token UI (no debe listarse aunque exista) y uno MCP pendiente.
+	_, _ = s.Put(Entry{SQL: "ui"})
+	mcpToken, _ := s.PutWithOrigin(Entry{SQL: "mcp"}, OriginMCP)
+	_, _ = s.RequestApproval(mcpToken)
+
+	pend := s.ListPending()
+	if len(pend) != 1 || pend[0].Token != mcpToken {
+		t.Fatalf("ListPending debía traer solo el token mcp pendiente, got %+v", pend)
+	}
+}

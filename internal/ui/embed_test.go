@@ -96,6 +96,27 @@ func TestUnknownPathReturns404(t *testing.T) {
 	}
 }
 
+func TestServesApprovalsPage(t *testing.T) {
+	// La ruta /approvals (a la que apunta la herramienta MCP confirm) sirve la
+	// misma single-page, que abre la vista de aprobaciones.
+	res, body := do(t, Handler("postgres"), "/approvals")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /approvals status = %d, want 200", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html…", ct)
+	}
+	if !strings.Contains(body, "<title>Deitafix</title>") {
+		t.Fatalf("GET /approvals no devolvió el HTML embebido")
+	}
+	// El flujo de aprobación humana debe estar cableado en la página.
+	for _, want := range []string{"loadPending", "doApprove", "doReject", "/pending"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("el index no contiene %q (flujo de aprobaciones)", want)
+		}
+	}
+}
+
 func TestHTMLAttrEscape(t *testing.T) {
 	cases := map[string]string{
 		"postgres": "postgres",

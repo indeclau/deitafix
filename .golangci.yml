@@ -1,0 +1,15 @@
+# Configuración de golangci-lint (formato v2).
+#
+# Se usa el conjunto de linters por defecto (errcheck, govet, ineffassign,
+# staticcheck, unused): sano y de bajo ruido. La config explícita fija el
+# comportamiento y evita que el runner dependa de defaults implícitos.
+version: "2"
+
+run:
+  # pg_query_go envuelve libpg_query vía cgo; el análisis necesita CGO_ENABLED=1
+  # (el runner de CI lo tiene, con gcc). Localmente en Windows sin toolchain de C
+  # los paquetes que dependen del engine no se pueden lintear.
+  build-tags: []
+
+linters:
+  default: standard

@@ -58,7 +58,14 @@ func run() error {
 	go runGC(ctx, st)
 
 	svc := api.NewService(eng, st, cfg.TableWhitelist, int64(cfg.MaxAffectedRows))
-	handler := api.NewRouter(svc, cfg.Enabled)
+	handler := api.NewRouter(svc, api.RouterConfig{
+		Enabled:            cfg.Enabled,
+		MCPEnabled:         cfg.MCPEnabled,
+		MCPAuthToken:       cfg.MCPAuthToken,
+		MCPPath:            cfg.MCPPath,
+		MCPApprovalBaseURL: cfg.MCPApprovalBaseURL,
+		UIAuthToken:        cfg.UIAuthToken,
+	})
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -66,8 +73,8 @@ func run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("deitafix: motor=%s enabled=%t max_affected_rows=%d whitelist=%v escuchando en %s",
-		cfg.Engine, cfg.Enabled, cfg.MaxAffectedRows, cfg.TableWhitelist, srv.Addr)
+	log.Printf("deitafix: motor=%s enabled=%t max_affected_rows=%d whitelist=%v mcp_enabled=%t mcp_path=%s escuchando en %s",
+		cfg.Engine, cfg.Enabled, cfg.MaxAffectedRows, cfg.TableWhitelist, cfg.MCPEnabled, cfg.MCPPath, srv.Addr)
 
 	return serve(ctx, srv)
 }

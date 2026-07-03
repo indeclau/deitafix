@@ -27,9 +27,20 @@ var assets embed.FS
 // (Alpine.js) bajo la ruta /static/.
 var staticFS = mustSub(assets, "static")
 
+// indexRoutes son las rutas que sirven la single-page (el mismo HTML). La SPA
+// decide qué vista mostrar según la ruta:
+//   - "/"          → pantalla de entrada (preview → confirm).
+//   - "/approvals" → pantalla "Aprobaciones pendientes" (superficie humana a la
+//     que apunta la herramienta MCP confirm).
+var indexRoutes = map[string]bool{
+	"/":          true,
+	"/approvals": true,
+}
+
 // Handler construye el http.Handler que sirve la UI embebida:
 //
-//   - GET /            → index.html (la single-page).
+//   - GET /            → index.html (pantalla de entrada).
+//   - GET /approvals   → index.html (pantalla de aprobaciones pendientes).
 //   - GET /static/...  → estáticos embebidos (Alpine.js).
 //
 // El engine que se pasa es el motor real del servidor (postgres|mysql), que la
@@ -40,10 +51,10 @@ func Handler(engine string) http.Handler {
 
 	index := renderIndex(engine)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// El ServeMux enruta "/" como catch-all; solo servimos el index en la
-		// ruta exacta y devolvemos 404 para cualquier otra cosa, para no dar
-		// falso 200 a rutas inexistentes.
-		if r.URL.Path != "/" {
+		// El ServeMux enruta "/" como catch-all; solo servimos el index en las
+		// rutas conocidas de la SPA y devolvemos 404 para cualquier otra cosa,
+		// para no dar falso 200 a rutas inexistentes.
+		if !indexRoutes[r.URL.Path] {
 			http.NotFound(w, r)
 			return
 		}

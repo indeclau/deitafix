@@ -166,6 +166,98 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 			t.Fatalf("se esperaba error de permisos, got: %v", err)
 		}
 	})
+
+	// --- Flujo MCP end-to-end contra la base real ---
+
+	t.Run("mcp: preview -> pending -> approve persiste (COMMIT)", func(t *testing.T) {
+		res, err := svc.PreviewMCP(ctx,
+			fmt.Sprintf(`UPDATE %s SET status = 4242 WHERE id = 1`, fx.tbl), nil)
+		if err != nil {
+			t.Fatalf("PreviewMCP: %v", err)
+		}
+
+		// El preview del agente NO persiste (ROLLBACK), igual que el humano.
+		if n := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = 4242", fx.tbl)); n != 0 {
+			t.Fatalf("el preview mcp persistió: status=4242 = %d, want 0", n)
+		}
+
+		// El agente no puede ejecutar por el confirm humano directo.
+		if _, err := svc.Confirm(ctx, res.Token); err != api.ErrMCPRequiresApproval {
+			t.Fatalf("Confirm de token mcp = %v, want ErrMCPRequiresApproval", err)
+		}
+
+		// Solicitud de aprobación (herramienta confirm): no toca la base.
+		if err := svc.RequestApproval(ctx, res.Token); err != nil {
+			t.Fatalf("RequestApproval: %v", err)
+		}
+		if n := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = 4242", fx.tbl)); n != 0 {
+			t.Fatalf("RequestApproval persistió: status=4242 = %d, want 0", n)
+		}
+
+		// Aprobación humana: recién acá ocurre el COMMIT.
+		if _, err := svc.Approve(ctx, res.Token); err != nil {
+			t.Fatalf("Approve: %v", err)
+		}
+		if n := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = 4242", fx.tbl)); n != 1 {
+			t.Fatalf("Approve no persistió: status=4242 = %d, want 1", n)
+		}
+	})
+
+	t.Run("mcp: reject no cambia nada y consume el token", func(t *testing.T) {
+		before := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = 9191", fx.tbl))
+
+		res, err := svc.PreviewMCP(ctx,
+			fmt.Sprintf(`UPDATE %s SET status = 9191 WHERE id = 2`, fx.tbl), nil)
+		if err != nil {
+			t.Fatalf("PreviewMCP: %v", err)
+		}
+		if err := svc.RequestApproval(ctx, res.Token); err != nil {
+			t.Fatalf("RequestApproval: %v", err)
+		}
+		if err := svc.Reject(ctx, res.Token); err != nil {
+			t.Fatalf("Reject: %v", err)
+		}
+
+		after := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = 9191", fx.tbl))
+		if before != after {
+			t.Fatalf("reject cambió la base: antes=%d, después=%d", before, after)
+		}
+		// Token consumido.
+		if _, err := svc.Approve(ctx, res.Token); err != store.ErrNotFound {
+			t.Fatalf("Approve tras Reject = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("mcp: token expirado no es aprobable", func(t *testing.T) {
+		// Store con TTL nulo: el token expira de inmediato.
+		expiring := api.NewService(eng, store.New(time.Nanosecond), []string{"CollectionBox"}, 50)
+		res, err := expiring.PreviewMCP(ctx,
+			fmt.Sprintf(`UPDATE %s SET status = 1 WHERE id = 1`, fx.tbl), nil)
+		if err != nil {
+			t.Fatalf("PreviewMCP: %v", err)
+		}
+		time.Sleep(2 * time.Millisecond)
+		if err := expiring.RequestApproval(ctx, res.Token); err != store.ErrNotFound {
+			t.Fatalf("RequestApproval de token expirado = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("mcp: fuera de whitelist -> permission denied del motor", func(t *testing.T) {
+		permissive := api.NewService(eng, store.New(time.Minute),
+			[]string{"CollectionBox", "AuditSensitive"}, 50)
+		auditTbl := "AuditSensitive"
+		if fx.engineName == "postgres" {
+			auditTbl = `"AuditSensitive"`
+		}
+		_, err := permissive.PreviewMCP(ctx,
+			fmt.Sprintf(`UPDATE %s SET note = 'x' WHERE id = 1`, auditTbl), nil)
+		if err == nil {
+			t.Fatal("se esperaba permission denied del motor vía MCP, got nil")
+		}
+		if !isPermissionError(err) {
+			t.Fatalf("se esperaba error de permisos, got: %v", err)
+		}
+	})
 }
 
 // isPermissionError detecta el error de permisos de cada motor.
