@@ -1,0 +1,63 @@
+# Release de Deitafix.
+# Publica la imagen a GHCR (GitHub Container Registry) cuando se taggea una
+# version SemVer (vX.Y.Z). El maintainer hace el push del tag; este workflow
+# solo construye y publica.
+#
+# Imagen destino: ghcr.io/<owner>/deitafix  (el owner se deriva del repo,
+# nunca se hardcodea).
+#
+# Arquitectura: solo linux/amd64. El binario requiere cgo (libpg_query), y el
+# build multi-arch con cgo necesita un toolchain cruzado que complica el
+# Dockerfile; por eso se deja arm64 fuera de este hito (ver ROADMAP / PR).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Build & push image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # <owner> derivado del repo, en minuscula (requisito de GHCR).
+          images: ghcr.io/${{ github.repository_owner }}/deitafix
+          tags: |
+            # Version exacta del tag: v1.2.3 -> 1.2.3
+            type=semver,pattern={{version}}
+            # latest solo para releases no-prerelease (sin -rc, -beta, etc.).
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
