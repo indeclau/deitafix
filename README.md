@@ -77,6 +77,17 @@ docker run --rm `
 
 Abrí `http://localhost:8080` para la UI, o usá la API directamente.
 
+### UI web (mobile-first)
+
+El binario sirve, en el mismo proceso que la API, una **UI web mobile-first embebida** para el caso de emergencia desde el celular. No requiere build step, servidor aparte ni CDN: Alpine.js y el CSS van vendoreados dentro del binario con `embed`.
+
+El flujo en pantalla es el mismo **preview → confirm** del backend, en dos pasos:
+
+1. **Entrada** — elegís SQL crudo u operación acotada (tabla + campos + where) y tocás **Preview**. El motor de la base se muestra como indicador *read-only* (es propiedad del servidor, no se elige por request).
+2. **Impacto** — ves las **filas afectadas** y la sentencia exacta que se va a ejecutar. **Confirmar** manda **solo el token** del preview (nunca SQL) y lo aprieta siempre un humano; **Volver** descarta el token sin ejecutar nada.
+
+Los errores de guardas (p. ej. `DELETE` sin `WHERE`, tope de filas superado, tabla fuera de la whitelist) vienen del backend y se muestran tal cual: la UI no agrega validaciones propias que reemplacen a las guardas del core.
+
 ### Variables de entorno
 
 | Variable | Descripción |

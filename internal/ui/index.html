@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<!--
+  Deitafix — UI web mobile-first (preview → confirm), embebida en el binario.
+
+  Reglas de oro (no negociables):
+    1. El confirm manda SOLO el token que devolvió el preview. Nunca re-envía SQL.
+       Se ejecuta exactamente lo previsualizado.
+    2. El confirm lo aprieta siempre un humano. La UI no auto-confirma jamás.
+    3. La UI no valida por su cuenta reemplazando a las guardas: todo error de
+       validación viene del backend y se muestra tal cual (con x-text, no x-html).
+
+  Alpine.js v3.14.1 (vendoreado en /static/alpine.min.js, sin CDN).
+-->
+<html lang="es" data-engine="{{ENGINE}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Deitafix</title>
+  <style>
+    /* ---- Reset y base mobile-first ---- */
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #0f1115;
+      --surface: #171a21;
+      --surface-2: #1f232c;
+      --border: #2b303b;
+      --text: #e6e9ef;
+      --muted: #9aa4b2;
+      --accent: #4f8cff;
+      --accent-press: #3a6fd6;
+      --danger: #ff5c5c;
+      --danger-bg: #2a1417;
+      --danger-border: #5a2226;
+      --ok: #47c479;
+      --ok-bg: #10261a;
+      --ok-border: #1f5236;
+      --warn: #ffb454;
+      --radius: 12px;
+      --tap: 48px; /* alto mínimo táctil */
+    }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      /* Respeta el notch en mobile. */
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 16px 16px 40px;
+    }
+
+    /* ---- Header ---- */
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0 20px; }
+    .brand { display: flex; align-items: baseline; gap: 8px; }
+    .brand h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.02em; }
+    .brand .v { color: var(--muted); font-size: 0.8rem; }
+    .engine-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      color: var(--muted); font-size: 0.78rem; font-weight: 600;
+      padding: 6px 10px; border-radius: 999px; white-space: nowrap;
+    }
+    .engine-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+    /* ---- Cards / panels ---- */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .card + .card { margin-top: 14px; }
+
+    /* ---- Form controls ---- */
+    label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
+    .field { margin-bottom: 14px; }
+    input[type="text"], textarea, select {
+      width: 100%; font: inherit; color: var(--text);
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px; min-height: var(--tap);
+      appearance: none;
+    }
+    textarea { min-height: 140px; resize: vertical; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.95rem; }
+    input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+    /* ---- Segmented toggle (modo de entrada) ---- */
+    .segmented { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 4px; margin-bottom: 16px; }
+    .segmented button {
+      flex: 1; min-height: 44px; border: 0; border-radius: 8px; cursor: pointer;
+      background: transparent; color: var(--muted); font: inherit; font-weight: 600;
+    }
+    .segmented button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+    /* ---- Botones ---- */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; min-height: var(--tap); padding: 12px 16px;
+      border: 1px solid transparent; border-radius: 10px; cursor: pointer;
+      font: inherit; font-weight: 700; font-size: 1rem;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:active { background: var(--accent-press); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-row { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+
+    /* ---- Spinner ---- */
+    .spinner {
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- Alerts / mensajes ---- */
+    .alert { border-radius: 10px; padding: 12px 14px; font-size: 0.92rem; margin-bottom: 14px; border: 1px solid; }
+    .alert-error { background: var(--danger-bg); border-color: var(--danger-border); color: #ffd9d9; }
+    .alert-warn { background: #2a2410; border-color: #5a4a1f; color: #ffe6b3; }
+    .alert-title { font-weight: 700; margin: 0 0 2px; display: flex; align-items: center; gap: 6px; }
+    .alert p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+
+    /* ---- Pantalla 2: impacto ---- */
+    .impact { text-align: center; padding: 8px 0 4px; }
+    .impact .rows { font-size: 3rem; font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
+    .impact .rows-label { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+    .impact.danger .rows { color: var(--warn); }
+    .summary { color: var(--text); font-size: 0.95rem; margin: 14px 0 0; }
+    .stmt {
+      margin-top: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; color: var(--muted);
+    }
+    .stmt-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+
+    /* ---- Éxito ---- */
+    .success .rows { color: var(--ok); }
+    .success-icon { font-size: 2.5rem; }
+
+    /* ---- Estado deshabilitado (feature flag off) ---- */
+    .disabled-banner { text-align: center; padding: 40px 16px; }
+    .disabled-banner .icon { font-size: 2.5rem; }
+    .disabled-banner h2 { margin: 12px 0 6px; }
+    .disabled-banner p { color: var(--muted); margin: 0; }
+
+    .hint { color: var(--muted); font-size: 0.8rem; margin-top: -6px; margin-bottom: 14px; }
+    [x-cloak] { display: none !important; }
+
+    /* Fila de campos de operación acotada, apilados en mobile. */
+    .kv-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .kv-row input { margin: 0; }
+    @media (max-width: 380px) { .kv-row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap" x-data="deitafix()" x-cloak>
+    <header>
+      <div class="brand">
+        <h1>Deitafix</h1>
+        <span class="v">preview → confirm</span>
+      </div>
+      <!-- Motor real del servidor: indicador read-only, no un selector.
+           El motor es propiedad del servidor (DATABASE_URL), no elegible por request. -->
+      <span class="engine-badge" x-show="engine">
+        <span class="dot"></span>
+        <span x-text="engine"></span>
+      </span>
+    </header>
+
+    <!-- ===================== PANTALLA 1 — ENTRADA ===================== -->
+    <section x-show="view === 'input'">
+      <div class="card">
+        <!-- Toggle de modo de entrada -->
+        <div class="segmented" role="group" aria-label="Modo de entrada">
+          <button type="button" :aria-pressed="mode === 'raw'" @click="mode = 'raw'; error = ''">SQL crudo</button>
+          <button type="button" :aria-pressed="mode === 'op'" @click="mode = 'op'; error = ''">Operación acotada</button>
+        </div>
+
+        <!-- Error de validación / guardas del backend, mostrado tal cual -->
+        <div class="alert alert-error" x-show="error" x-transition>
+          <p class="alert-title">⚠️ No se pudo previsualizar</p>
+          <p x-text="error"></p>
+        </div>
+
+        <!-- Modo SQL crudo -->
+        <div class="field" x-show="mode === 'raw'">
+          <label for="sql">Sentencia SQL</label>
+          <textarea id="sql" x-model="sql" spellcheck="false" autocapitalize="off" autocomplete="off"
+            placeholder="UPDATE &quot;CollectionBox&quot; SET status = 1 WHERE id = 42"></textarea>
+          <p class="hint">UPDATE / DELETE / INSERT. Las guardas del backend rechazan lo inseguro (p. ej. DELETE sin WHERE).</p>
+        </div>
+
+        <!-- Modo operación acotada -->
+        <div x-show="mode === 'op'">
+          <div class="field">
+            <label for="op-kind">Operación</label>
+            <select id="op-kind" x-model="op.op">
+              <option value="UPDATE">UPDATE</option>
+              <option value="DELETE">DELETE</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="op-table">Tabla</label>
+            <input type="text" id="op-table" x-model="op.table" spellcheck="false" autocapitalize="off"
+              autocomplete="off" placeholder="CollectionBox">
+          </div>
+
+          <!-- SET: pares columna→valor (solo UPDATE) -->
+          <div class="field" x-show="op.op === 'UPDATE'">
+            <label>SET (columna = valor)</label>
+            <template x-for="(pair, i) in op.set" :key="'set' + i">
+              <div class="kv-row">
+                <input type="text" x-model="pair.k" placeholder="columna" spellcheck="false" autocapitalize="off" autocomplete="off">
+                <input type="text" x-model="pair.v" placeholder="valor" spellcheck="false" autocapitalize="off" autocomplete="off">
+              </div>
+            </template>
+            <button type="button" class="btn btn-ghost" style="margin-top:4px" @click="op.set.push({k:'',v:''})">+ campo</button>
+          </div>
+
+          <!-- WHERE: pares columna→valor (obligatorio) -->
+          <div class="field">
+            <label>WHERE (columna = valor)</label>
+            <template x-for="(pair, i) in op.where" :key="'where' + i">
+              <div class="kv-row">
+                <input type="text" x-model="pair.k" placeholder="columna" spellcheck="false" autocapitalize="off" autocomplete="off">
+                <input type="text" x-model="pair.v" placeholder="valor" spellcheck="false" autocapitalize="off" autocomplete="off">
+              </div>
+            </template>
+            <button type="button" class="btn btn-ghost" style="margin-top:4px" @click="op.where.push({k:'',v:''})">+ condición</button>
+            <p class="hint">Una operación acotada nunca puede quedar sin WHERE.</p>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" @click="doPreview()" :disabled="loading || !canPreview()">
+            <template x-if="loading"><span class="spinner"></span></template>
+            <span x-text="loading ? 'Previsualizando…' : 'Preview'"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== PANTALLA 2 — IMPACTO / CONFIRMACIÓN ===================== -->
+    <section x-show="view === 'impact'">
+      <div class="card">
+        <div class="impact" :class="{ danger: preview.affected_rows > 0 }">
+          <div class="rows" x-text="preview.affected_rows"></div>
+          <div class="rows-label">fila(s) afectada(s)</div>
+        </div>
+        <p class="summary" x-text="preview.summary"></p>
+
+        <!-- Sentencia previsualizada, solo como referencia (read-only) -->
+        <div class="stmt-label" style="margin-top:16px">Se ejecutará exactamente esto</div>
+        <div class="stmt" x-text="previewedStmt"></div>
+
+        <!-- Error al confirmar (p. ej. token expirado / ya usado) -->
+        <div class="alert alert-error" style="margin-top:14px" x-show="error" x-transition>
+          <p class="alert-title">⚠️ No se pudo confirmar</p>
+          <p x-text="error"></p>
+        </div>
+
+        <div class="btn-row">
+          <!-- Confirmar: manda SOLO el token. Lo aprieta un humano. -->
+          <button type="button" class="btn btn-danger" @click="doConfirm()" :disabled="loading">
+            <template x-if="loading"><span class="spinner"></span></template>
+            <span x-text="loading ? 'Ejecutando…' : 'Confirmar y ejecutar'"></span>
+          </button>
+          <button type="button" class="btn btn-ghost" @click="cancel()" :disabled="loading">Volver / Cancelar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== ÉXITO ===================== -->
+    <section x-show="view === 'done'">
+      <div class="card">
+        <div class="impact success">
+          <div class="success-icon">✅</div>
+          <div class="rows" x-text="result.affected_rows"></div>
+          <div class="rows-label">fila(s) afectada(s)</div>
+        </div>
+        <p class="summary" x-text="result.summary"></p>
+        <div class="btn-row" style="margin-top:18px">
+          <button type="button" class="btn btn-primary" @click="reset()">Nueva operación</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== SERVICIO DESHABILITADO (feature flag off) ===================== -->
+    <section x-show="view === 'disabled'">
+      <div class="card">
+        <div class="disabled-banner">
+          <div class="icon">🚫</div>
+          <h2>Servicio deshabilitado</h2>
+          <p x-text="error || 'El servicio está apagado (DATAFIX_ENABLED=false).'"></p>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost" @click="reset()">Reintentar</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/alpine.min.js" defer></script>
+  <script>
+    // Estado y lógica de la UI. Todo el trabajo pesado (parseo, guardas, medición
+    // de impacto) vive en el backend; esta capa solo orquesta preview → confirm y
+    // muestra lo que el backend devuelve.
+    function deitafix() {
+      return {
+        // Motor real del servidor, inyectado en <html data-engine> por el server.
+        engine: document.documentElement.getAttribute('data-engine') || '',
+
+        view: 'input',        // input | impact | done | disabled
+        mode: 'raw',          // raw | op
+        loading: false,
+        error: '',
+
+        sql: '',
+        op: {
+          op: 'UPDATE',
+          table: '',
+          set: [{ k: '', v: '' }],
+          where: [{ k: '', v: '' }],
+        },
+
+        preview: { token: '', affected_rows: 0, summary: '' },
+        previewedStmt: '',    // referencia read-only de lo que se va a ejecutar
+        result: { affected_rows: 0, summary: '' },
+
+        // canPreview evita disparar un request obviamente vacío. NO reemplaza a
+        // las guardas del backend: solo evita el ida y vuelta trivial. Toda regla
+        // de seguridad real la aplica el backend.
+        canPreview() {
+          if (this.mode === 'raw') return this.sql.trim() !== '';
+          return this.op.table.trim() !== '' && this.pairsToObj(this.op.where) !== null;
+        },
+
+        // pairsToObj convierte los pares [{k,v}] en un objeto {col: val}, saltando
+        // filas con clave vacía. Devuelve null si no quedó ninguna clave.
+        pairsToObj(pairs) {
+          const out = {};
+          for (const p of pairs) {
+            const k = (p.k || '').trim();
+            if (k === '') continue;
+            out[k] = this.coerce(p.v);
+          }
+          return Object.keys(out).length ? out : null;
+        },
+
+        // coerce intenta interpretar el valor como número o booleano; si no, lo
+        // deja como string. El backend parametriza el valor, así que esto solo
+        // afecta el tipo JSON enviado, no la seguridad.
+        coerce(v) {
+          const s = (v ?? '').trim();
+          if (s === '') return '';
+          if (s === 'true') return true;
+          if (s === 'false') return false;
+          if (s === 'null') return null;
+          if (/^-?\d+$/.test(s)) return parseInt(s, 10);
+          if (/^-?\d*\.\d+$/.test(s)) return parseFloat(s);
+          return s;
+        },
+
+        // buildPayload arma el cuerpo del /preview según el modo activo.
+        buildPayload() {
+          if (this.mode === 'raw') {
+            return { payload: { sql: this.sql }, stmt: this.sql };
+          }
+          const body = { operation: { op: this.op.op, table: this.op.table.trim() } };
+          if (this.op.op === 'UPDATE') body.operation.set = this.pairsToObj(this.op.set) || {};
+          body.operation.where = this.pairsToObj(this.op.where) || {};
+          // Referencia legible de la operación acotada (el SQL real lo arma el backend).
+          const setStr = body.operation.set
+            ? ' SET ' + Object.entries(body.operation.set).map(([k, v]) => k + ' = ' + JSON.stringify(v)).join(', ')
+            : '';
+          const whereStr = ' WHERE ' + Object.entries(body.operation.where).map(([k, v]) => k + ' = ' + JSON.stringify(v)).join(' AND ');
+          const stmt = this.op.op + (this.op.op === 'DELETE' ? ' FROM ' : ' ') + this.op.table + setStr + whereStr;
+          return { payload: body, stmt };
+        },
+
+        async doPreview() {
+          this.error = '';
+          this.loading = true;
+          try {
+            const { payload, stmt } = this.buildPayload();
+            const res = await fetch('/preview', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 503) { this.error = data.error || ''; this.view = 'disabled'; return; }
+            if (!res.ok) { this.error = data.error || ('Error ' + res.status); return; }
+            this.preview = data;
+            this.previewedStmt = stmt;
+            this.view = 'impact';
+          } catch (e) {
+            this.error = 'No se pudo contactar el servidor. Reintentá.';
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        async doConfirm() {
+          this.error = '';
+          this.loading = true;
+          try {
+            // Confirm manda SOLO el token. Nunca SQL. Se ejecuta lo previsualizado.
+            const res = await fetch('/confirm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: this.preview.token }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 503) { this.error = data.error || ''; this.view = 'disabled'; return; }
+            if (res.status === 404) {
+              // Token expirado, inválido o ya usado: volver a Pantalla 1 para
+              // re-previsualizar. Nunca reintentamos confirm en silencio.
+              this.error = (data.error || 'Token expirado o inválido.') + ' Volvé a previsualizar.';
+              this.preview = { token: '', affected_rows: 0, summary: '' };
+              this.view = 'input';
+              return;
+            }
+            if (!res.ok) { this.error = data.error || ('Error ' + res.status); return; }
+            this.result = data;
+            this.view = 'done';
+          } catch (e) {
+            this.error = 'No se pudo contactar el servidor. Reintentá.';
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        // cancel descarta el token y vuelve a Pantalla 1 sin ejecutar nada.
+        cancel() {
+          this.preview = { token: '', affected_rows: 0, summary: '' };
+          this.previewedStmt = '';
+          this.error = '';
+          this.view = 'input';
+        },
+
+        // reset limpia el estado de éxito y vuelve a un formulario en blanco.
+        reset() {
+          this.preview = { token: '', affected_rows: 0, summary: '' };
+          this.previewedStmt = '';
+          this.result = { affected_rows: 0, summary: '' };
+          this.error = '';
+          this.sql = '';
+          this.op = { op: 'UPDATE', table: '', set: [{ k: '', v: '' }], where: [{ k: '', v: '' }] };
+          this.view = 'input';
+        },
+      };
+    }
+  </script>
+</body>
+</html>
