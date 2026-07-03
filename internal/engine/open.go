@@ -5,10 +5,13 @@ import (
 	"fmt"
 )
 
-// Asserts de compile-time: ambos motores implementan Engine.
+// Asserts de compile-time: ambos motores implementan Engine y, además, la
+// capacidad opcional Introspector (que consume la capa de IA para NL → SQL).
 var (
-	_ Engine = (*Postgres)(nil)
-	_ Engine = (*MySQL)(nil)
+	_ Engine       = (*Postgres)(nil)
+	_ Engine       = (*MySQL)(nil)
+	_ Introspector = (*Postgres)(nil)
+	_ Introspector = (*MySQL)(nil)
 )
 
 // Open crea el Engine correspondiente al motor indicado, conectándose a la URL
