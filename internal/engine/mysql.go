@@ -98,6 +98,14 @@ func (m *MySQL) Confirm(ctx context.Context, query string, args ...any) (int64, 
 	return affected, nil
 }
 
+// Ping verifica la conectividad con la base. Lo usa la probe de readiness.
+func (m *MySQL) Ping(ctx context.Context) error {
+	if err := m.db.PingContext(ctx); err != nil {
+		return fmt.Errorf("mysql: ping: %w", err)
+	}
+	return nil
+}
+
 // Close cierra el pool.
 func (m *MySQL) Close() error {
 	return m.db.Close()

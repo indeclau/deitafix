@@ -41,6 +41,11 @@ type Engine interface {
 	// Devuelve las filas realmente afectadas.
 	Confirm(ctx context.Context, sql string, args ...any) (affected int64, err error)
 
+	// Ping verifica la conectividad con la base usando el usuario restringido.
+	// Lo usa la probe de readiness (/readyz): no ejecuta ninguna sentencia de
+	// negocio, solo comprueba que el pool puede alcanzar la base.
+	Ping(ctx context.Context) error
+
 	// Close libera los recursos del pool de conexiones.
 	Close() error
 }

@@ -1,0 +1,54 @@
+# .dockerignore — recorta el contexto de build para que sea rápido y no filtre
+# nada innecesario a la imagen. Solo hace falta el código Go y go.mod/go.sum.
+
+# Control de versiones
+.git
+.gitignore
+.github
+
+# Documentación y textos (no se usan en el build)
+*.md
+LICENSE
+CLA.md
+
+# Entorno local / secretos (nunca al contexto de build)
+.env
+.env.local
+.env.example
+
+# Infra local de desarrollo (no se necesita para compilar el binario)
+docker-compose.yml
+Dockerfile
+.dockerignore
+seed/
+k8s/
+
+# Binarios / artefactos de test
+/deitafix
+*.exe
+*.out
+/vendor/
+go.work
+go.work.sum
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Serena y agentes IA (locales del dev)
+.serena/
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
+GEMINI.md
+.gemini/
+.codex/
+.cursor/
+.cursorrules
+.windsurfrules
+.aider*
+.codeium/

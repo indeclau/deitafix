@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -12,6 +14,10 @@ import (
 	"github.com/indeclau/deitafix/internal/guard"
 	"github.com/indeclau/deitafix/internal/store"
 )
+
+// readyzTimeout acota el ping de la probe de readiness para que /readyz no
+// quede colgado si la base no responde.
+const readyzTimeout = 3 * time.Second
 
 // Handler agrupa las dependencias de los handlers HTTP.
 type Handler struct {
@@ -31,8 +37,11 @@ func NewRouter(svc *Service, enabled bool) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
-	// Healthcheck: no depende del feature flag.
-	r.Get("/healthz", h.health)
+	// Probes: no dependen del feature flag.
+	//   /healthz — liveness: el proceso está vivo, sin tocar la base.
+	//   /readyz  — readiness: la base es alcanzable con el usuario restringido.
+	r.Get("/healthz", h.healthz)
+	r.Get("/readyz", h.readyz)
 
 	// Rutas de escritura, detrás del feature flag.
 	r.Group(func(r chi.Router) {
@@ -91,7 +100,23 @@ type errorResponse struct {
 
 // --- Handlers ---
 
-func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
+// healthz es la probe de liveness: responde 200 sin tocar la base. Solo indica
+// que el proceso está vivo y sirviendo HTTP.
+func (h *Handler) healthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// readyz es la probe de readiness: hace ping a la base con el usuario
+// restringido. 200 si conecta, 503 si no, para que el orquestador no enrute
+// tráfico hasta que la base sea alcanzable.
+func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), readyzTimeout)
+	defer cancel()
+
+	if err := h.svc.Ready(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

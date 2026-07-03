@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,7 @@ import (
 type fakeEngine struct {
 	affected   int64
 	confirmErr error
+	pingErr    error
 
 	lastPreviewSQL string
 	lastConfirmSQL string
@@ -69,6 +71,8 @@ func (f *fakeEngine) Confirm(_ context.Context, sql string, _ ...any) (int64, er
 	}
 	return f.affected, nil
 }
+
+func (f *fakeEngine) Ping(_ context.Context) error { return f.pingErr }
 
 func (f *fakeEngine) Close() error { return nil }
 
@@ -212,6 +216,46 @@ func TestConfirmRejectsMissingToken(t *testing.T) {
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", status)
 	}
+}
+
+func TestHealthzAlwaysOK(t *testing.T) {
+	// Liveness no toca la base: responde 200 aunque el ping falle y aunque el
+	// feature flag esté apagado.
+	srv := newTestServer(t, &fakeEngine{pingErr: errors.New("db caída")}, false, 50)
+	resp, err := http.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("GET /healthz: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestReadyzReflectsDB(t *testing.T) {
+	t.Run("base alcanzable -> 200", func(t *testing.T) {
+		srv := newTestServer(t, &fakeEngine{}, true, 50)
+		resp, err := http.Get(srv.URL + "/readyz")
+		if err != nil {
+			t.Fatalf("GET /readyz: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("readyz status = %d, want 200", resp.StatusCode)
+		}
+	})
+
+	t.Run("base caída -> 503", func(t *testing.T) {
+		srv := newTestServer(t, &fakeEngine{pingErr: errors.New("db caída")}, true, 50)
+		resp, err := http.Get(srv.URL + "/readyz")
+		if err != nil {
+			t.Fatalf("GET /readyz: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("readyz status = %d, want 503", resp.StatusCode)
+		}
+	})
 }
 
 // tableEngine es un fakeEngine que fuerza un nombre de tabla concreto al
