@@ -106,6 +106,14 @@ func (s *Service) Ready(ctx context.Context) error {
 	return s.engine.Ping(ctx)
 }
 
+// Engine devuelve el nombre del motor real del servidor ("postgres" | "mysql").
+// Lo consume la UI para mostrarlo como indicador read-only: el motor es una
+// propiedad del servidor (a qué base apunta DATABASE_URL), no algo que el
+// cliente elija por request.
+func (s *Service) Engine() string {
+	return s.engine.Name()
+}
+
 // Confirm ejecuta y persiste la operación asociada a un token de un solo uso.
 // El token se invalida al recuperarlo, aunque la ejecución falle.
 func (s *Service) Confirm(ctx context.Context, token string) (ConfirmResult, error) {

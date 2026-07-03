@@ -13,6 +13,7 @@ import (
 	"github.com/indeclau/deitafix/internal/engine"
 	"github.com/indeclau/deitafix/internal/guard"
 	"github.com/indeclau/deitafix/internal/store"
+	"github.com/indeclau/deitafix/internal/ui"
 )
 
 // readyzTimeout acota el ping de la probe de readiness para que /readyz no
@@ -49,6 +50,16 @@ func NewRouter(svc *Service, enabled bool) http.Handler {
 		r.Post("/preview", h.preview)
 		r.Post("/confirm", h.confirm)
 	})
+
+	// UI web embebida. Va fuera del feature flag a propósito: si el servicio
+	// está deshabilitado, la página igual debe cargar para reflejar ese estado
+	// en vez de fallar de forma opaca. La UI recibe el motor real del servidor
+	// para mostrarlo como indicador read-only.
+	//
+	// Se monta al final como catch-all ("/*") para que las rutas de la API
+	// registradas arriba (mismo prefijo raíz) tengan prioridad; la UI sirve
+	// "/" (index) y "/static/*" (Alpine.js), y 404 para el resto.
+	r.Handle("/*", ui.Handler(svc.Engine()))
 
 	return r
 }

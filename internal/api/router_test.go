@@ -258,6 +258,64 @@ func TestReadyzReflectsDB(t *testing.T) {
 	})
 }
 
+// TestServesUIOnRoot verifica que la UI embebida se sirve montada en el mismo
+// router que la API: GET / devuelve el HTML y los estáticos (Alpine) se sirven.
+// La UI convive con /preview y /confirm sin alterar su contrato.
+func TestServesUIOnRoot(t *testing.T) {
+	srv := newTestServer(t, &fakeEngine{affected: 1}, true, 50)
+
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html…", ct)
+	}
+	buf := new(bytes.Buffer)
+	_, _ = buf.ReadFrom(resp.Body)
+	if !strings.Contains(buf.String(), "<title>Deitafix</title>") {
+		t.Fatalf("GET / no devolvió el HTML embebido")
+	}
+	// El motor real del servidor se inyecta como indicador read-only.
+	if !strings.Contains(buf.String(), `data-engine="fake"`) {
+		t.Fatalf("GET / no inyectó el motor del servidor en el HTML")
+	}
+}
+
+func TestServesUIStatic(t *testing.T) {
+	srv := newTestServer(t, &fakeEngine{affected: 1}, true, 50)
+
+	resp, err := http.Get(srv.URL + "/static/alpine.min.js")
+	if err != nil {
+		t.Fatalf("GET /static/alpine.min.js: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /static/alpine.min.js status = %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestUIServedEvenWhenDisabled comprueba que la UI carga aunque el feature flag
+// esté apagado: la página debe reflejar el estado deshabilitado, no fallar de
+// forma opaca. Las rutas de escritura sí devuelven 503.
+func TestUIServedEvenWhenDisabled(t *testing.T) {
+	srv := newTestServer(t, &fakeEngine{affected: 1}, false, 50)
+
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("con flag off, GET / status = %d, want 200", resp.StatusCode)
+	}
+}
+
 // tableEngine es un fakeEngine que fuerza un nombre de tabla concreto al
 // parsear, para testear el rechazo por whitelist.
 type tableEngine struct {
