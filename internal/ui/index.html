@@ -6,7 +6,7 @@
     1. El confirm manda SOLO el token que devolvió el preview. Nunca re-envía SQL.
        Se ejecuta exactamente lo previsualizado.
     2. El confirm lo aprieta siempre un humano. La UI no auto-confirma jamás.
-    3. La UI no valida por su cuenta reemplazando a las guardas: todo error de
+    3. La UI no valida por su cuenta reemplazando a las guardas: cada error de
        validación viene del backend y se muestra tal cual (con x-text, no x-html).
 
   Alpine.js v3.14.1 (vendoreado en /static/alpine.min.js, sin CDN).
@@ -74,7 +74,7 @@
     .card + .card { margin-top: 14px; }
 
     /* ---- Form controls ---- */
-    label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
+    label, .group-label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
     .field { margin-bottom: 14px; }
     input[type="text"], textarea, select {
       width: 100%; font: inherit; color: var(--text);
@@ -86,7 +86,7 @@
     input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 
     /* ---- Segmented toggle (modo de entrada) ---- */
-    .segmented { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 4px; margin-bottom: 16px; }
+    .segmented { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 4px; margin: 0 0 16px; min-width: 0; }
     .segmented button {
       flex: 1; min-height: 44px; border: 0; border-radius: 8px; cursor: pointer;
       background: transparent; color: var(--muted); font: inherit; font-weight: 600;
@@ -120,7 +120,7 @@
     .alert-error { background: var(--danger-bg); border-color: var(--danger-border); color: #ffd9d9; }
     .alert-warn { background: #2a2410; border-color: #5a4a1f; color: #ffe6b3; }
     .alert-title { font-weight: 700; margin: 0 0 2px; display: flex; align-items: center; gap: 6px; }
-    .alert p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+    .alert p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
     /* ---- Pantalla 2: impacto ---- */
     .impact { text-align: center; padding: 8px 0 4px; }
@@ -131,7 +131,7 @@
     .stmt {
       margin-top: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
       padding: 12px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; color: var(--muted);
+      font-size: 0.85rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted);
     }
     .stmt-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
 
@@ -173,10 +173,10 @@
     <section x-show="view === 'input'">
       <div class="card">
         <!-- Toggle de modo de entrada -->
-        <div class="segmented" role="group" aria-label="Modo de entrada">
+        <fieldset class="segmented" aria-label="Modo de entrada">
           <button type="button" :aria-pressed="mode === 'raw'" @click="mode = 'raw'; error = ''">SQL crudo</button>
           <button type="button" :aria-pressed="mode === 'op'" @click="mode = 'op'; error = ''">Operación acotada</button>
-        </div>
+        </fieldset>
 
         <!-- Error de validación / guardas del backend, mostrado tal cual -->
         <div class="alert alert-error" x-show="error" x-transition>
@@ -209,11 +209,11 @@
 
           <!-- SET: pares columna→valor (solo UPDATE) -->
           <div class="field" x-show="op.op === 'UPDATE'">
-            <label>SET (columna = valor)</label>
+            <span class="group-label">SET (columna = valor)</span>
             <template x-for="(pair, i) in op.set" :key="'set' + i">
               <div class="kv-row">
-                <input type="text" x-model="pair.k" placeholder="columna" spellcheck="false" autocapitalize="off" autocomplete="off">
-                <input type="text" x-model="pair.v" placeholder="valor" spellcheck="false" autocapitalize="off" autocomplete="off">
+                <input type="text" x-model="pair.k" placeholder="columna" aria-label="Columna a asignar" spellcheck="false" autocapitalize="off" autocomplete="off">
+                <input type="text" x-model="pair.v" placeholder="valor" aria-label="Valor a asignar" spellcheck="false" autocapitalize="off" autocomplete="off">
               </div>
             </template>
             <button type="button" class="btn btn-ghost" style="margin-top:4px" @click="op.set.push({k:'',v:''})">+ campo</button>
@@ -221,11 +221,11 @@
 
           <!-- WHERE: pares columna→valor (obligatorio) -->
           <div class="field">
-            <label>WHERE (columna = valor)</label>
+            <span class="group-label">WHERE (columna = valor)</span>
             <template x-for="(pair, i) in op.where" :key="'where' + i">
               <div class="kv-row">
-                <input type="text" x-model="pair.k" placeholder="columna" spellcheck="false" autocapitalize="off" autocomplete="off">
-                <input type="text" x-model="pair.v" placeholder="valor" spellcheck="false" autocapitalize="off" autocomplete="off">
+                <input type="text" x-model="pair.k" placeholder="columna" aria-label="Columna del WHERE" spellcheck="false" autocapitalize="off" autocomplete="off">
+                <input type="text" x-model="pair.v" placeholder="valor" aria-label="Valor del WHERE" spellcheck="false" autocapitalize="off" autocomplete="off">
               </div>
             </template>
             <button type="button" class="btn btn-ghost" style="margin-top:4px" @click="op.where.push({k:'',v:''})">+ condición</button>
@@ -304,13 +304,13 @@
 
   <script src="/static/alpine.min.js" defer></script>
   <script>
-    // Estado y lógica de la UI. Todo el trabajo pesado (parseo, guardas, medición
-    // de impacto) vive en el backend; esta capa solo orquesta preview → confirm y
+    // Estado y lógica de la UI. El trabajo pesado (parseo, guardas, medición de
+    // impacto) vive en el backend; esta capa solo orquesta preview → confirm y
     // muestra lo que el backend devuelve.
     function deitafix() {
       return {
         // Motor real del servidor, inyectado en <html data-engine> por el server.
-        engine: document.documentElement.getAttribute('data-engine') || '',
+        engine: document.documentElement.dataset.engine || '',
 
         view: 'input',        // input | impact | done | disabled
         mode: 'raw',          // raw | op
@@ -358,8 +358,8 @@
           if (s === 'true') return true;
           if (s === 'false') return false;
           if (s === 'null') return null;
-          if (/^-?\d+$/.test(s)) return parseInt(s, 10);
-          if (/^-?\d*\.\d+$/.test(s)) return parseFloat(s);
+          if (/^-?\d+$/.test(s)) return Number.parseInt(s, 10);
+          if (/^-?\d*\.\d+$/.test(s)) return Number.parseFloat(s);
           return s;
         },
 
@@ -396,7 +396,7 @@
             this.preview = data;
             this.previewedStmt = stmt;
             this.view = 'impact';
-          } catch (e) {
+          } catch {
             this.error = 'No se pudo contactar el servidor. Reintentá.';
           } finally {
             this.loading = false;
@@ -426,7 +426,7 @@
             if (!res.ok) { this.error = data.error || ('Error ' + res.status); return; }
             this.result = data;
             this.view = 'done';
-          } catch (e) {
+          } catch {
             this.error = 'No se pudo contactar el servidor. Reintentá.';
           } finally {
             this.loading = false;
