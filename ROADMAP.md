@@ -43,9 +43,10 @@ El caso de emergencia desde el celular.
 
 Hacer seguro que un agente de IA toque producción.
 
-- [ ] Servidor MCP que expone `preview` y `confirm` como herramientas
-- [ ] El agente puede previsualizar; el `confirm` sigue siendo **humano** (human-in-the-loop)
-- [ ] Documentación de conexión MCP
+- [x] Servidor MCP que expone `preview` y `confirm` como herramientas
+- [x] El agente puede previsualizar; el `confirm` sigue siendo **humano** (human-in-the-loop), forzado a nivel servidor (gating por origen del token)
+- [x] Superficie de aprobación humana (`/pending`, approve, reject) + UI "Aprobaciones pendientes"
+- [x] Documentación de conexión MCP
 
 ## v0.5.0 — Features LLM
 

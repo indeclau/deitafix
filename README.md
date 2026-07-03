@@ -55,7 +55,7 @@ Todo cambio pasa por dos pasos:
 
 Toda sugerencia de la IA pasa por **las mismas guardas y el mismo preview → confirm**. La IA nunca saltea la seguridad: solo propone.
 
-- **Servidor MCP** — expone `preview` y `confirm` como herramientas MCP. Un agente puede *proponer* escrituras, obligado a pasar por las salvaguardas. Es el ángulo central: hacer seguro que un agente de IA toque una base de producción.
+- **Servidor MCP** ✅ *disponible* — expone `preview` y `confirm` como herramientas MCP. Un agente puede *proponer* escrituras, obligado a pasar por las salvaguardas; el `confirm` del agente solo **solicita** aprobación, y ejecutar es siempre de un humano (forzado a nivel servidor). Es el ángulo central: hacer seguro que un agente de IA toque una base de producción. Ver **[docs/mcp.md](docs/mcp.md)**.
 - **NL → SQL** — describís la intención en lenguaje natural ("borrá el registro X del cliente Y") y la IA propone la sentencia candidata. Ideal para el caso de emergencia desde el celular.
 - **Explicación de impacto** — en el preview, la IA traduce "47 filas afectadas" a lenguaje claro y marca riesgo.
 - **Revisor IA** — señala patrones sospechosos en la sentencia (segundo par de ojos parcial).
@@ -111,6 +111,9 @@ Los errores de guardas (p. ej. `DELETE` sin `WHERE`, tope de filas superado, tab
 | `DATAFIX_ENABLED` | Feature flag. `false` deja el servicio apagado |
 | `MAX_AFFECTED_ROWS` | Tope de filas; si se supera, aborta |
 | `TABLE_WHITELIST` | Tablas permitidas, separadas por coma (además de la contención en la base) |
+| `MCP_ENABLED` | *(Opcional)* habilita la capa MCP (endpoint `/mcp`). Ver [docs/mcp.md](docs/mcp.md) |
+| `MCP_AUTH_TOKEN` | Bearer para `/mcp`. Obligatorio si `MCP_ENABLED=true` |
+| `UI_AUTH_TOKEN` | *(Opcional, recomendado)* protege la superficie humana; la credencial MCP no la alcanza |
 | `AI_API_KEY` | *(Opcional)* habilita la capa de IA |
 
 ---

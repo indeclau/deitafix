@@ -18,6 +18,7 @@ import (
 const (
 	defaultPort            = "8080"
 	defaultMaxAffectedRows = 50
+	defaultMCPPath         = "/mcp"
 )
 
 // Config es la configuración efectiva del servicio, ya validada.
@@ -45,6 +46,30 @@ type Config struct {
 
 	// Port es el puerto HTTP donde escucha el servicio.
 	Port string
+
+	// MCPEnabled es el on/off de la capa MCP (MCP_ENABLED). Si es false, el
+	// endpoint MCP no se registra y el resto del servicio queda intacto.
+	MCPEnabled bool
+
+	// MCPAuthToken es el bearer que protege el endpoint MCP (MCP_AUTH_TOKEN).
+	// Obligatorio si MCPEnabled es true: sin él, el arranque aborta.
+	MCPAuthToken string
+
+	// MCPPath es la ruta donde se monta el endpoint MCP (MCP_PATH, default /mcp).
+	MCPPath string
+
+	// MCPApprovalBaseURL es la base pública (esquema + host + puerto) desde donde
+	// un humano aprueba, para armar la approval_url que devuelve la herramienta
+	// MCP confirm (MCP_APPROVAL_BASE_URL, p. ej. "https://deitafix.midominio.com").
+	// Si queda vacía, la approval_url es una ruta relativa (/pending).
+	MCPApprovalBaseURL string
+
+	// UIAuthToken protege OPCIONALMENTE la superficie humana (UI + confirm +
+	// aprobaciones), para que la credencial MCP no la alcance (UI_AUTH_TOKEN).
+	// La garantía dura de human-in-the-loop no depende de este token —se apoya
+	// en el origen del token—; es una capa extra de defensa en profundidad. Si
+	// está vacío, la superficie humana no exige bearer (comportamiento v0.1–v0.3).
+	UIAuthToken string
 }
 
 // Load construye la Config a partir del entorno y la valida.
@@ -90,7 +115,43 @@ func Load() (Config, error) {
 		cfg.Port = p
 	}
 
+	if err := loadMCP(&cfg); err != nil {
+		return Config{}, err
+	}
+
+	cfg.UIAuthToken = strings.TrimSpace(os.Getenv("UI_AUTH_TOKEN"))
+
 	return cfg, nil
+}
+
+// loadMCP lee y valida la configuración de la capa MCP.
+//
+// Degradación limpia, consistente con DATAFIX_ENABLED / AI_API_KEY: si
+// MCP_ENABLED es false, la capa queda apagada y el resto del servicio intacto.
+// Pero si está habilitada SIN token, se aborta el arranque con un error claro:
+// un endpoint MCP sin auth sería un agujero, así que se falla rápido en vez de
+// exponerlo.
+func loadMCP(cfg *Config) error {
+	cfg.MCPEnabled = parseBool(os.Getenv("MCP_ENABLED"))
+	cfg.MCPAuthToken = strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
+
+	cfg.MCPPath = strings.TrimSpace(os.Getenv("MCP_PATH"))
+	if cfg.MCPPath == "" {
+		cfg.MCPPath = defaultMCPPath
+	}
+	if !strings.HasPrefix(cfg.MCPPath, "/") {
+		return fmt.Errorf("config: MCP_PATH debe empezar con '/', got %q", cfg.MCPPath)
+	}
+
+	// Base URL para la approval_url; se normaliza sin '/' final para concatenar
+	// limpio con la ruta de aprobación.
+	cfg.MCPApprovalBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("MCP_APPROVAL_BASE_URL")), "/")
+
+	if cfg.MCPEnabled && cfg.MCPAuthToken == "" {
+		return errors.New("config: MCP_ENABLED=true requiere MCP_AUTH_TOKEN (no se expone el endpoint MCP sin auth)")
+	}
+
+	return nil
 }
 
 // inferEngine deduce el motor a partir del esquema de la connection string.

@@ -81,7 +81,7 @@ func newTestServer(t *testing.T, eng engine.Engine, enabled bool, maxRows int64)
 	t.Helper()
 	st := store.New(time.Minute)
 	svc := NewService(eng, st, []string{"CollectionBox"}, maxRows)
-	srv := httptest.NewServer(NewRouter(svc, enabled))
+	srv := httptest.NewServer(NewRouter(svc, RouterConfig{Enabled: enabled}))
 	t.Cleanup(srv.Close)
 	return srv
 }

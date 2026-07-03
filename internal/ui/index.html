@@ -69,6 +69,32 @@
     }
     .engine-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
+    /* ---- Navegación ---- */
+    .nav-links { display: flex; gap: 4px; }
+    .nav-links a {
+      color: var(--muted); text-decoration: none; font-size: 0.82rem; font-weight: 600;
+      padding: 6px 10px; border-radius: 8px;
+    }
+    .nav-links a[aria-current="page"] { color: var(--text); background: var(--surface-2); }
+
+    /* ---- Lista de aprobaciones pendientes ---- */
+    .pending-item {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px; margin-bottom: 12px;
+    }
+    .pending-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .pending-op { font-weight: 700; }
+    .pending-op .tbl { color: var(--muted); font-weight: 600; }
+    .pending-rows { color: var(--warn); font-weight: 800; font-size: 1.1rem; white-space: nowrap; }
+    .pending-ttl { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+    .empty-state { text-align: center; padding: 32px 16px; color: var(--muted); }
+    .empty-state .icon { font-size: 2rem; }
+    .agent-tag {
+      display: inline-block; background: var(--surface-2); border: 1px solid var(--border);
+      color: var(--muted); font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 2px 7px; border-radius: 999px; margin-bottom: 10px;
+    }
+
     /* ---- Cards / panels ---- */
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
     .card + .card { margin-top: 14px; }
@@ -161,12 +187,20 @@
         <h1>Deitafix</h1>
         <span class="v">preview → confirm</span>
       </div>
-      <!-- Motor real del servidor: indicador read-only, no un selector.
-           El motor es propiedad del servidor (DATABASE_URL), no elegible por request. -->
-      <span class="engine-badge" x-show="engine">
-        <span class="dot"></span>
-        <span x-text="engine"></span>
-      </span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <!-- Navegación entre la entrada y las aprobaciones pendientes (propuestas
+             del agente MCP que esperan una decisión humana). -->
+        <nav class="nav-links">
+          <a href="/" @click.prevent="goInput()" :aria-current="view !== 'approvals' ? 'page' : false">Operar</a>
+          <a href="/approvals" @click.prevent="goApprovals()" :aria-current="view === 'approvals' ? 'page' : false">Aprobaciones</a>
+        </nav>
+        <!-- Motor real del servidor: indicador read-only, no un selector.
+             El motor es propiedad del servidor (DATABASE_URL), no elegible por request. -->
+        <span class="engine-badge" x-show="engine">
+          <span class="dot"></span>
+          <span x-text="engine"></span>
+        </span>
+      </div>
     </header>
 
     <!-- ===================== PANTALLA 1 — ENTRADA ===================== -->
@@ -287,6 +321,86 @@
       </div>
     </section>
 
+    <!-- ===================== APROBACIONES PENDIENTES (superficie humana) ===================== -->
+    <!--
+      Propuestas creadas por un agente vía MCP (origin=mcp). El agente previsualizó
+      y solicitó confirmación, pero NO puede ejecutar: la ejecución la decide acá
+      una persona. Se reutilizan los componentes de la pantalla de confirmación
+      (impacto + SQL exacto + botón de ejecución) del flujo preview → confirm.
+    -->
+    <section x-show="view === 'approvals'">
+      <!-- Detalle de una propuesta: impacto + SQL exacto + aprobar/rechazar -->
+      <div class="card" x-show="selected">
+        <span class="agent-tag">Propuesto por un agente</span>
+        <div class="impact" :class="{ danger: selected && selected.affected_rows > 0 }">
+          <div class="rows" x-text="selected ? selected.affected_rows : 0"></div>
+          <div class="rows-label">fila(s) afectada(s)</div>
+        </div>
+        <p class="summary">
+          <span x-text="selected ? selected.op : ''"></span>
+          sobre <strong x-text="selected ? selected.table : ''"></strong>.
+          Revisá el SQL exacto antes de ejecutar.
+        </p>
+
+        <div class="stmt-label" style="margin-top:16px">Se ejecutará exactamente esto</div>
+        <div class="stmt" x-text="selected ? selected.sql : ''"></div>
+        <p class="pending-ttl" x-show="selected">Expira en <span x-text="selected ? selected.expires_in_sec : 0"></span> s</p>
+
+        <div class="alert alert-error" style="margin-top:14px" x-show="error" x-transition>
+          <p class="alert-title">⚠️ No se pudo completar</p>
+          <p x-text="error"></p>
+        </div>
+
+        <div class="btn-row">
+          <!-- Aprobar y ejecutar: el COMMIT del token del agente ocurre SOLO acá. -->
+          <button type="button" class="btn btn-danger" @click="doApprove()" :disabled="loading">
+            <template x-if="loading"><span class="spinner"></span></template>
+            <span x-text="loading ? 'Ejecutando…' : 'Aprobar y ejecutar'"></span>
+          </button>
+          <button type="button" class="btn btn-ghost" @click="doReject()" :disabled="loading">Rechazar</button>
+          <button type="button" class="btn btn-ghost" @click="selected = null; error = ''" :disabled="loading">Volver a la lista</button>
+        </div>
+      </div>
+
+      <!-- Lista de propuestas pendientes -->
+      <div x-show="!selected">
+        <div class="alert alert-error" x-show="error" x-transition>
+          <p class="alert-title">⚠️ No se pudo cargar</p>
+          <p x-text="error"></p>
+        </div>
+
+        <template x-if="!loading && pending.length === 0">
+          <div class="card">
+            <div class="empty-state">
+              <div class="icon">🕊️</div>
+              <p>No hay aprobaciones pendientes.</p>
+            </div>
+          </div>
+        </template>
+
+        <template x-for="item in pending" :key="item.token">
+          <div class="pending-item" @click="select(item)" style="cursor:pointer" role="button" tabindex="0"
+               @keydown.enter="select(item)" @keydown.space.prevent="select(item)">
+            <div class="pending-head">
+              <div class="pending-op">
+                <span x-text="item.op"></span>
+                <span class="tbl" x-text="'· ' + item.table"></span>
+              </div>
+              <div class="pending-rows" x-text="item.affected_rows + ' fila(s)'"></div>
+            </div>
+            <div class="pending-ttl">Expira en <span x-text="item.expires_in_sec"></span> s · tocá para revisar</div>
+          </div>
+        </template>
+
+        <div class="btn-row" style="margin-top:6px">
+          <button type="button" class="btn btn-ghost" @click="loadPending()" :disabled="loading">
+            <template x-if="loading"><span class="spinner"></span></template>
+            <span x-text="loading ? 'Cargando…' : 'Actualizar'"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- ===================== SERVICIO DESHABILITADO (feature flag off) ===================== -->
     <section x-show="view === 'disabled'">
       <div class="card">
@@ -328,6 +442,18 @@
         preview: { token: '', affected_rows: 0, summary: '' },
         previewedStmt: '',    // referencia read-only de lo que se va a ejecutar
         result: { affected_rows: 0, summary: '' },
+
+        // Aprobaciones pendientes (propuestas del agente MCP).
+        pending: [],          // lista de propuestas pending_approval
+        selected: null,       // propuesta abierta en detalle, o null (lista)
+
+        // init decide la vista inicial según la ruta: /approvals abre la pantalla
+        // de aprobaciones; cualquier otra, la de entrada.
+        init() {
+          if (window.location.pathname === '/approvals') {
+            this.openApprovals();
+          }
+        },
 
         // canPreview evita disparar un request obviamente vacío. NO reemplaza a
         // las guardas del backend: solo evita el ida y vuelta trivial. Toda regla
@@ -450,6 +576,115 @@
           this.sql = '';
           this.op = { op: 'UPDATE', table: '', set: [{ k: '', v: '' }], where: [{ k: '', v: '' }] };
           this.view = 'input';
+        },
+
+        // ---- Navegación entre superficies ----
+
+        // goInput vuelve a la pantalla de entrada (preview → confirm).
+        goInput() {
+          this.error = '';
+          this.selected = null;
+          this.view = 'input';
+          if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+        },
+
+        // goApprovals abre la pantalla de aprobaciones y actualiza la URL.
+        goApprovals() {
+          if (window.location.pathname !== '/approvals') window.history.pushState({}, '', '/approvals');
+          this.openApprovals();
+        },
+
+        // openApprovals muestra la vista de aprobaciones y carga la lista.
+        openApprovals() {
+          this.error = '';
+          this.selected = null;
+          this.view = 'approvals';
+          this.loadPending();
+        },
+
+        // ---- Aprobaciones pendientes ----
+
+        // loadPending trae las propuestas del agente a la espera de aprobación.
+        async loadPending() {
+          this.error = '';
+          this.loading = true;
+          try {
+            const res = await fetch('/pending', { headers: { 'Accept': 'application/json' } });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 503) { this.error = data.error || ''; this.view = 'disabled'; return; }
+            if (res.status === 401) { this.error = 'Necesitás autenticarte para ver las aprobaciones.'; return; }
+            if (!res.ok) { this.error = data.error || ('Error ' + res.status); return; }
+            this.pending = Array.isArray(data.pending) ? data.pending : [];
+          } catch {
+            this.error = 'No se pudo contactar el servidor. Reintentá.';
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        // select abre el detalle de una propuesta.
+        select(item) {
+          this.error = '';
+          this.selected = item;
+        },
+
+        // doApprove ejecuta la propuesta seleccionada (COMMIT). Solo un humano
+        // llega hasta acá: el agente nunca ejecuta.
+        async doApprove() {
+          if (!this.selected) return;
+          this.error = '';
+          this.loading = true;
+          try {
+            const res = await fetch('/pending/' + encodeURIComponent(this.selected.token) + '/approve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 503) { this.error = data.error || ''; this.view = 'disabled'; return; }
+            if (res.status === 401) { this.error = 'Necesitás autenticarte para aprobar.'; return; }
+            if (!res.ok) {
+              // 404 (expirado/consumido) o 409 (estado inesperado): volver a la lista.
+              this.error = (data.error || ('Error ' + res.status)) + ' Actualizando la lista.';
+              this.selected = null;
+              await this.loadPending();
+              return;
+            }
+            this.result = data;
+            this.selected = null;
+            this.view = 'done';
+            await this.loadPending();
+          } catch {
+            this.error = 'No se pudo contactar el servidor. Reintentá.';
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        // doReject descarta la propuesta seleccionada sin ejecutar nada.
+        async doReject() {
+          if (!this.selected) return;
+          this.error = '';
+          this.loading = true;
+          try {
+            const res = await fetch('/pending/' + encodeURIComponent(this.selected.token) + '/reject', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 503) { this.error = data.error || ''; this.view = 'disabled'; return; }
+            if (res.status === 401) { this.error = 'Necesitás autenticarte para rechazar.'; return; }
+            if (!res.ok && res.status !== 404 && res.status !== 409) {
+              this.error = data.error || ('Error ' + res.status);
+              return;
+            }
+            // Aprobado, rechazado o ya no existe: en todos los casos, fuera de la lista.
+            this.selected = null;
+            await this.loadPending();
+          } catch {
+            this.error = 'No se pudo contactar el servidor. Reintentá.';
+          } finally {
+            this.loading = false;
+          }
         },
       };
     }

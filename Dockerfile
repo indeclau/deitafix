@@ -11,8 +11,9 @@
 # Se verificó con `ldd`/`file` que corre en esa base.
 
 # ---- Stage build ----
-# Versión de Go alineada con el go.mod (go 1.22). Imagen Debian: incluye gcc.
-FROM golang:1.22 AS build
+# Versión de Go alineada con el go.mod (go 1.25, requerida por el SDK de MCP).
+# Imagen Debian: incluye gcc.
+FROM golang:1.25 AS build
 
 WORKDIR /src
 
