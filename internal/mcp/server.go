@@ -1,3 +1,6 @@
+// Copyright 2026 indeclau. Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the repository root for the full license text.
+
 // Package mcp expone el core seguro de Deitafix (preview → confirm) como un
 // servidor MCP, para que un agente de IA pueda PROPONER escrituras sobre una
 // base de producción obligado a pasar por las mismas guardas y el mismo preview

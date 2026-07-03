@@ -1,3 +1,6 @@
+// Copyright 2026 indeclau. Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the repository root for the full license text.
+
 // Package engine abstrae el motor de base de datos detrás de una interfaz
 // común, con dos implementaciones: postgres (pgx) y mysql (go-sql-driver).
 //

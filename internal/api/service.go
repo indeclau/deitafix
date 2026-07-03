@@ -1,3 +1,6 @@
+// Copyright 2026 indeclau. Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the repository root for the full license text.
+
 // Package api implementa la capa HTTP del flujo preview → confirm.
 //
 // El transporte (router chi, JSON) se separa de la lógica de aplicación

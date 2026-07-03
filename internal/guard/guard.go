@@ -1,3 +1,6 @@
+// Copyright 2026 indeclau. Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the repository root for the full license text.
+
 // Package guard implementa las guardas de sentencia de Deitafix.
 //
 // Las guardas son la primera línea de defensa (la segunda es el usuario
