@@ -1,0 +1,65 @@
+# CI de Deitafix.
+# Gratis: repositorio publico -> runners estandar sin limite de minutos.
+#
+# Corre en cada push a main, en cada PR contra main, y en tags de version.
+# Tres jobs: lint -> test (matrix Postgres + MariaDB) -> build.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  test:
+    name: Test (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [postgres, mysql]
+    env:
+      # El test suite lee esta variable y levanta la base efimera correspondiente
+      # (Postgres o MariaDB) con testcontainers-go. Docker ya viene en el runner.
+      DEITAFIX_TEST_ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+      - name: go test
+        run: go test -race -count=1 ./...
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+      - name: go build
+        run: go build -o /dev/null ./...

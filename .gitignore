@@ -1,0 +1,37 @@
+# Binarios
+/deitafix
+*.exe
+*.out
+
+# Go
+/vendor/
+go.work
+go.work.sum
+
+# Entorno / secretos
+.env
+.env.local
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Serena
+.serena/
+
+# Agentes IA (locales del dev, no van al repo publico)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
+GEMINI.md
+.gemini/
+.codex/
+.cursor/
+.cursorrules
+.windsurfrules
+.aider*
+.codeium/

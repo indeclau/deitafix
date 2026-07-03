@@ -1,0 +1,47 @@
+# docker-compose.yml
+# Entorno de DESARROLLO/TESTING local para Deitafix.
+# Levanta PostgreSQL y MariaDB con datos de seed y el usuario restringido
+# (prod_datafix) ya configurado, listo para probar el flujo preview -> confirm.
+#
+# Uso:
+#   docker compose up -d
+#   docker compose down        (agregar -v para borrar datos)
+#
+# NOTA: las credenciales de abajo son SOLO para desarrollo local.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: deitafix-postgres
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: dev_app_pw
+      POSTGRES_DB: deitafix_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      # Los scripts .sql corren en orden alfabetico al crear la base por primera vez.
+      - ./seed/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d deitafix_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mariadb:
+    image: mariadb:11
+    container_name: deitafix-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: dev_root_pw
+      MARIADB_USER: app
+      MARIADB_PASSWORD: dev_app_pw
+      MARIADB_DATABASE: deitafix_dev
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./seed/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
