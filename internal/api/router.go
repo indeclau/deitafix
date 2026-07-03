@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/indeclau/deitafix/internal/ai"
 	"github.com/indeclau/deitafix/internal/engine"
 	"github.com/indeclau/deitafix/internal/guard"
 	"github.com/indeclau/deitafix/internal/mcp"
@@ -98,6 +100,12 @@ func NewRouter(svc *Service, cfg RouterConfig) http.Handler {
 		r.Post("/preview", h.preview)
 		r.Post("/confirm", h.confirm)
 
+		// NL → SQL: propone un SQL candidato SIN validar. No toca la base ni
+		// llega a confirm; el candidato vuelve por /preview. 503 limpio si la IA
+		// está deshabilitada. Va detrás del feature flag y de UI_AUTH_TOKEN, como
+		// el resto de la superficie humana.
+		r.Post("/ai/suggest", h.aiSuggest)
+
 		// Aprobación humana de propuestas del agente (origin=mcp).
 		r.Get("/pending", h.listPending)
 		r.Post("/pending/{token}/approve", h.approve)
@@ -138,13 +146,52 @@ type previewRequest struct {
 	Engine    string            `json:"engine,omitempty"`
 	SQL       string            `json:"sql,omitempty"`
 	Operation *boundedOpRequest `json:"operation,omitempty"`
+
+	// AI controla el enriquecimiento de IA best-effort en el preview. Ausente
+	// (nil) significa "usar IA si está habilitada" (default on); false lo omite
+	// explícitamente para no pagar latencia/costo cuando no se quiere. Es un
+	// puntero para distinguir "no vino el campo" de "vino false".
+	AI *bool `json:"ai,omitempty"`
 }
 
-// previewResponse es el cuerpo de la respuesta de /preview.
+// aiInsightResponse es el bloque "ai" de la respuesta de /preview cuando la IA
+// está habilitada y respondió. Es nil (JSON null) si la IA está apagada, se
+// pidió omitir o falló.
+type aiInsightResponse struct {
+	Explanation string           `json:"explanation"`
+	RiskLevel   string           `json:"risk_level"`
+	Flags       []aiFlagResponse `json:"flags"`
+}
+
+// aiFlagResponse es un flag del revisor IA en la respuesta.
+type aiFlagResponse struct {
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+// previewResponse es el cuerpo de la respuesta de /preview. El campo ai es un
+// puntero para poder emitir null cuando no hay IA, dejando el resto intacto.
 type previewResponse struct {
-	Token        string `json:"token"`
-	AffectedRows int64  `json:"affected_rows"`
-	Summary      string `json:"summary"`
+	Token        string             `json:"token"`
+	AffectedRows int64              `json:"affected_rows"`
+	Summary      string             `json:"summary"`
+	AI           *aiInsightResponse `json:"ai"`
+}
+
+// aiSuggestRequest es el cuerpo de POST /ai/suggest.
+type aiSuggestRequest struct {
+	Engine string `json:"engine,omitempty"`
+	Intent string `json:"intent"`
+	Schema string `json:"schema,omitempty"`
+}
+
+// aiSuggestResponse es la respuesta de /ai/suggest: el SQL candidato SIN validar.
+type aiSuggestResponse struct {
+	SQL       string `json:"sql"`
+	Rationale string `json:"rationale"`
+	Engine    string `json:"engine"`
+	// Note recuerda que el candidato todavía no pasó por las guardas.
+	Note string `json:"note"`
 }
 
 // confirmRequest es el cuerpo de POST /confirm. Solo el token, nunca SQL.
@@ -202,13 +249,70 @@ func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {
 		op = &parsed
 	}
 
-	res, err := h.svc.Preview(r.Context(), req.SQL, op)
+	// Default on: la IA se usa salvo que el cliente mande "ai": false.
+	aiEnabled := req.AI == nil || *req.AI
+
+	res, err := h.svc.Preview(r.Context(), req.SQL, op, aiEnabled)
 	if err != nil {
 		writeError(w, statusForError(err), err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, previewResponse(res))
+	writeJSON(w, http.StatusOK, toPreviewResponse(res))
+}
+
+// toPreviewResponse mapea el PreviewResult del servicio al contrato JSON,
+// traduciendo el bloque de IA (o dejándolo en null si no hay).
+func toPreviewResponse(res PreviewResult) previewResponse {
+	out := previewResponse{
+		Token:        res.Token,
+		AffectedRows: res.AffectedRows,
+		Summary:      res.Summary,
+	}
+	if res.AI != nil {
+		flags := make([]aiFlagResponse, 0, len(res.AI.Flags))
+		for _, f := range res.AI.Flags {
+			flags = append(flags, aiFlagResponse{
+				Severity: string(f.Severity),
+				Message:  f.Message,
+			})
+		}
+		out.AI = &aiInsightResponse{
+			Explanation: res.AI.Explanation,
+			RiskLevel:   string(res.AI.RiskLevel),
+			Flags:       flags,
+		}
+	}
+	return out
+}
+
+// aiSuggest maneja POST /ai/suggest: genera un SQL candidato a partir de una
+// intención en lenguaje natural. NO toca la base (salvo introspección de solo
+// lectura). Si la IA está deshabilitada, responde 503 limpio. El candidato NO
+// está validado: el cliente debe mandarlo a /preview.
+func (h *Handler) aiSuggest(w http.ResponseWriter, r *http.Request) {
+	var req aiSuggestRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Intent) == "" {
+		writeError(w, http.StatusBadRequest, errors.New("api: falta la intención (intent)"))
+		return
+	}
+
+	res, err := h.svc.SuggestSQL(r.Context(), req.Intent)
+	if err != nil {
+		writeError(w, statusForError(err), err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, aiSuggestResponse{
+		SQL:       res.SQL,
+		Rationale: res.Rationale,
+		Engine:    res.Engine,
+		Note:      "SQL candidato SIN validar: envialo a POST /preview para pasar por las guardas antes de confirmar.",
+	})
 }
 
 func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
@@ -270,6 +374,9 @@ func toBoundedOp(req *boundedOpRequest) (engine.BoundedOp, error) {
 // el confirm humano, o aprobar algo no pendiente) es 409; el resto, 500.
 func statusForError(err error) int {
 	switch {
+	case errors.Is(err, ai.ErrAIDisabled):
+		// IA no configurada: 503 (degradación limpia), no 500.
+		return http.StatusServiceUnavailable
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrMCPRequiresApproval),
