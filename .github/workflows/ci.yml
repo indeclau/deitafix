@@ -29,7 +29,8 @@ jobs:
       - name: golangci-lint
         # v9 instala golangci-lint v2; se fija una versión construida con go 1.25+
         # (las anteriores fallan al lintear un módulo con `go 1.25.0`).
-        uses: golangci/golangci-lint-action@v9
+        # Action pineada a SHA completo (v9.3.0) por seguridad de la cadena de suministro.
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
 
