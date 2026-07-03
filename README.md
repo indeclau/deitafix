@@ -53,14 +53,23 @@ Todo cambio pasa por dos pasos:
 
 ## La capa de IA
 
-Toda sugerencia de la IA pasa por **las mismas guardas y el mismo preview → confirm**. La IA nunca saltea la seguridad: solo propone.
+Toda sugerencia de la IA pasa por **las mismas guardas y el mismo preview → confirm**. La IA nunca saltea la seguridad: **solo propone, nunca ejecuta**. El SQL que genera es input no confiable y se valida igual que el SQL crudo de un humano; la seguridad la garantizan el parser + el usuario restringido de la base, no el modelo.
 
 - **Servidor MCP** ✅ *disponible* — expone `preview` y `confirm` como herramientas MCP. Un agente puede *proponer* escrituras, obligado a pasar por las salvaguardas; el `confirm` del agente solo **solicita** aprobación, y ejecutar es siempre de un humano (forzado a nivel servidor). Es el ángulo central: hacer seguro que un agente de IA toque una base de producción. Ver **[docs/mcp.md](docs/mcp.md)**.
-- **NL → SQL** — describís la intención en lenguaje natural ("borrá el registro X del cliente Y") y la IA propone la sentencia candidata. Ideal para el caso de emergencia desde el celular.
-- **Explicación de impacto** — en el preview, la IA traduce "47 filas afectadas" a lenguaje claro y marca riesgo.
-- **Revisor IA** — señala patrones sospechosos en la sentencia (segundo par de ojos parcial).
+- **NL → SQL** ✅ *disponible* — `POST /ai/suggest`: describís la intención en lenguaje natural ("borrá el registro X del cliente Y") y la IA propone la sentencia **candidata**. No toca la base (solo introspecciona el esquema de la whitelist, de solo lectura) ni llega a `confirm`: el candidato **todavía no fue validado** y hay que mandarlo a `POST /preview`, donde pasa por las guardas. Ideal para el caso de emergencia desde el celular.
+- **Explicación de impacto** ✅ *disponible* — en la respuesta de `POST /preview`, la IA traduce "47 filas afectadas" a lenguaje claro y marca una señal de riesgo (`low` / `medium` / `high`).
+- **Revisor IA** ✅ *disponible* — señala patrones sospechosos en la sentencia (`flags`), como un `WHERE` demasiado amplio o la modificación de columnas sensibles (segundo par de ojos **parcial**: informa, no bloquea; el gate real siguen siendo las guardas).
 
-> 🔒 **No negociable:** el `confirm` lo aprieta **siempre un humano**. El agente puede previsualizar; ejecutar es decisión de una persona (human-in-the-loop). La capa de IA degrada de forma limpia si no hay API key configurada.
+**Degradación limpia.** Sin `AI_API_KEY`, todo lo demás funciona **idéntico**: `POST /ai/suggest` responde `503` con un mensaje claro, y `POST /preview` devuelve `"ai": null` sin alterar `token` ni `affected_rows`. Un fallo o timeout del proveedor de IA **nunca** rompe `preview` ni `confirm`: la capa de IA en el preview es *best-effort*, con su propio timeout, y se puede desactivar por request con `"ai": false`.
+
+> 🔒 **No negociable:** el `confirm` lo aprieta **siempre un humano** y sigue aceptando **solo el token**, nunca SQL. La IA no tiene un camino a `confirm`. El agente puede previsualizar; ejecutar es decisión de una persona (human-in-the-loop).
+
+### Endpoints de IA
+
+| Endpoint | Qué hace |
+|---|---|
+| `POST /ai/suggest` | NL → SQL. Body `{ "engine": "...", "intent": "...", "schema": "opcional" }`. Devuelve `{ "sql", "rationale", "engine", "note" }` con el candidato **sin validar**. `503` si no hay `AI_API_KEY`. |
+| `POST /preview` | Además de `token` + `affected_rows` + `summary`, devuelve `"ai": { "explanation", "risk_level", "flags": [...] }` con IA habilitada; `"ai": null` si está apagada, falla, o se pasó `"ai": false`. |
 
 ---
 
@@ -114,7 +123,10 @@ Los errores de guardas (p. ej. `DELETE` sin `WHERE`, tope de filas superado, tab
 | `MCP_ENABLED` | *(Opcional)* habilita la capa MCP (endpoint `/mcp`). Ver [docs/mcp.md](docs/mcp.md) |
 | `MCP_AUTH_TOKEN` | Bearer para `/mcp`. Obligatorio si `MCP_ENABLED=true` |
 | `UI_AUTH_TOKEN` | *(Opcional, recomendado)* protege la superficie humana; la credencial MCP no la alcanza |
-| `AI_API_KEY` | *(Opcional)* habilita la capa de IA |
+| `AI_API_KEY` | *(Opcional)* habilita la capa de IA. Sin ella, degradación limpia (todo lo demás funciona igual) |
+| `AI_MODEL` | *(Opcional)* modelo a usar; default `claude-opus-4-8` |
+| `AI_BASE_URL` | *(Opcional)* override del endpoint del proveedor; default Anthropic (`https://api.anthropic.com`) |
+| `AI_TIMEOUT` | *(Opcional)* timeout por request de IA (ej. `15s`), independiente del timeout de la base; default `15s` |
 
 ---
 
@@ -135,6 +147,38 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/confirm `
   -ContentType "application/json" `
   -Body (@{ token = $preview.token } | ConvertTo-Json)
 ```
+
+### Ejemplo de uso (capa de IA)
+
+Con `AI_API_KEY` configurada. El flujo es: **describir la intención → obtener el SQL candidato → previsualizarlo (pasa por las guardas) → confirmar (humano)**.
+
+```powershell
+# 1. NL -> SQL: la IA propone un candidato SIN validar. No toca la base.
+$suggest = Invoke-RestMethod -Method Post -Uri http://localhost:8080/ai/suggest `
+  -ContentType "application/json" `
+  -Body '{"engine":"postgres","intent":"marca como listo (status = 1) el registro con id 42 de CollectionBox"}'
+$suggest.sql       # UPDATE "CollectionBox" SET status = 1 WHERE id = 42
+$suggest.rationale # por qué la IA propuso esa sentencia
+$suggest.note      # recordatorio: el candidato todavía no pasó por las guardas
+
+# 2. Preview del candidato: pasa por las MISMAS guardas que cualquier SQL.
+#    La respuesta trae, además del token, el bloque "ai" con la explicación,
+#    la señal de riesgo y los flags del revisor.
+$preview = Invoke-RestMethod -Method Post -Uri http://localhost:8080/preview `
+  -ContentType "application/json" `
+  -Body (@{ sql = $suggest.sql } | ConvertTo-Json)
+$preview.affected_rows   # p. ej. 1
+$preview.ai.explanation  # "Vas a marcar 1 registro como listo..."
+$preview.ai.risk_level   # low | medium | high
+$preview.ai.flags        # patrones sospechosos (puede venir vacío)
+
+# 3. Confirm: lo aprieta un humano y manda SOLO el token (nunca SQL).
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/confirm `
+  -ContentType "application/json" `
+  -Body (@{ token = $preview.token } | ConvertTo-Json)
+```
+
+> Para omitir el enriquecimiento de IA en un preview puntual (no pagar latencia/costo), mandá `"ai": false` en el body de `/preview`. Sin `AI_API_KEY`, `/ai/suggest` responde `503` y `/preview` devuelve `"ai": null`, con todo lo demás intacto.
 
 ---
 
