@@ -183,30 +183,48 @@ func TestParsersRejectBypasses(t *testing.T) {
 		},
 	}
 
-	for _, engine := range bothParsers() {
+	runForBothParsers(t, func(t *testing.T, engine parseFn) {
 		for _, tc := range cases {
 			if tc.onlyEngine != "" && tc.onlyEngine != engine.name {
 				continue
 			}
-			t.Run(engine.name+"/"+tc.name, func(t *testing.T) {
-				got, err := engine.parse(tc.sql)
-				if tc.wantErr != nil {
-					if !errors.Is(err, tc.wantErr) {
-						t.Fatalf("parse(%q) error = %v, want %v", tc.sql, err, tc.wantErr)
-					}
-					return
-				}
-				if err != nil {
-					t.Fatalf("parse(%q) error inesperado = %v", tc.sql, err)
-				}
-				assertStatement(t, got, tc.wantStmt)
+			t.Run(tc.name, func(t *testing.T) {
+				checkParsedStatement(t, engine.parse, tc)
 			})
 		}
+	})
+}
+
+// runForBothParsers ejecuta fn una vez por cada parser real, bajo un subtest con
+// el nombre del motor. Centraliza el recorrido de motores para que los tests no
+// dupliquen la estructura del doble loop.
+func runForBothParsers(t *testing.T, fn func(t *testing.T, engine parseFn)) {
+	t.Helper()
+	for _, engine := range bothParsers() {
+		t.Run(engine.name, func(t *testing.T) {
+			fn(t, engine)
+		})
 	}
 }
 
+// checkParsedStatement parsea el SQL del caso y verifica el error o el Statement
+// esperado. Extraído para mantener baja la complejidad del cuerpo del test.
+func checkParsedStatement(t *testing.T, parse func(string) (guard.Statement, error), tc securityCase) {
+	t.Helper()
+	got, err := parse(tc.sql)
+	if tc.wantErr != nil {
+		if !errors.Is(err, tc.wantErr) {
+			t.Fatalf("parse(%q) error = %v, want %v", tc.sql, err, tc.wantErr)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("parse(%q) error inesperado = %v", tc.sql, err)
+	}
+	assertStatement(t, got, tc.wantStmt)
+}
+
 // assertStatement compara campo a campo el Statement parseado contra el esperado.
-// Extraído para mantener baja la complejidad del cuerpo del test.
 func assertStatement(t *testing.T, got, want guard.Statement) {
 	t.Helper()
 	if got.Op != want.Op {
@@ -292,13 +310,13 @@ func TestCheckerOnParsed(t *testing.T) {
 		{"CTE con UPDATE a tabla whitelisteada se acepta", "WITH x AS (SELECT id FROM collectionbox) UPDATE collectionbox SET amount = 1 WHERE id IN (SELECT id FROM x)", nil},
 	}
 
-	for _, engine := range bothParsers() {
+	runForBothParsers(t, func(t *testing.T, engine parseFn) {
 		for _, tc := range cases {
-			t.Run(engine.name+"/"+tc.name, func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
 				assertCheckVerdict(t, engine.parse, tc.sql, whitelist, tc.wantErr)
 			})
 		}
-	}
+	})
 }
 
 // assertCheckVerdict corre parser -> guard.Check y verifica el veredicto final.
