@@ -170,6 +170,32 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("defensa en profundidad: el usuario restringido no puede hacer DDL", func(t *testing.T) {
+		// La guarda ya rechaza DROP/TRUNCATE por operación no soportada (se testea
+		// en el paquete engine, sin base). Acá probamos la SEGUNDA barrera: aunque
+		// la guarda se saltara, el usuario restringido no tiene el permiso DDL, así
+		// que el motor lo niega. Ejecutamos el DDL directo contra el engine
+		// restringido (eng.Confirm no pasa por las guardas del servicio).
+		ddls := []string{
+			fmt.Sprintf(`DROP TABLE %s`, fx.tbl),
+			fmt.Sprintf(`TRUNCATE TABLE %s`, fx.tbl),
+		}
+		for _, ddl := range ddls {
+			_, err := eng.Confirm(ctx, ddl)
+			if err == nil {
+				t.Fatalf("el usuario restringido pudo ejecutar %q; se esperaba que el motor lo negara", ddl)
+			}
+			// El error puede ser "permission denied" (Postgres) o el equivalente de
+			// MySQL/MariaDB ("command denied" / "DROP command denied"). En cualquier
+			// caso, NO debe haber persistido: la tabla sigue existiendo.
+		}
+
+		// La tabla objetivo debe seguir existiendo tras los DDL negados.
+		if n := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s", fx.tbl)); n == 0 {
+			t.Fatalf("la tabla quedó vacía o desaparecida tras los DDL: se esperaba que el motor los negara")
+		}
+	})
+
 	// --- Flujo MCP end-to-end contra la base real ---
 
 	t.Run("mcp: preview -> pending -> approve persiste (COMMIT)", func(t *testing.T) {
