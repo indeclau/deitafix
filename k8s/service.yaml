@@ -1,0 +1,19 @@
+# service.yaml — expone Deitafix dentro del cluster.
+#
+# ClusterIP: solo accesible desde dentro del cluster. Para exponerlo afuera,
+# agregá un Ingress por delante (fuera del alcance de este hito).
+apiVersion: v1
+kind: Service
+metadata:
+  name: deitafix
+  labels:
+    app.kubernetes.io/name: deitafix
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: deitafix
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
