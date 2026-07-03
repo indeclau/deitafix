@@ -64,6 +64,15 @@ func (f *fakeAI) ReviewStatement(_ context.Context, _ ai.ReviewRequest) (ai.Revi
 	return ai.Review{Flags: f.reviewFlags}, nil
 }
 
+// aiPreviewTimeoutForTest acorta el timeout del enriquecimiento y devuelve una
+// función para restaurarlo. Permite forzar la ruta de timeout sin esperar los
+// 15s de producción.
+func aiPreviewTimeoutForTest(d time.Duration) func() {
+	prev := aiPreviewTimeout
+	aiPreviewTimeout = d
+	return func() { aiPreviewTimeout = prev }
+}
+
 // newAITestServer arma un router con el fakeEngine y un ai.Client dado.
 func newAITestServer(t *testing.T, eng *fakeEngine, aiClient ai.Client) *httptest.Server {
 	t.Helper()
@@ -206,44 +215,43 @@ func TestPreviewIAErrorDoesNotBreakPreview(t *testing.T) {
 	}
 }
 
-// TestPreviewIATimeoutDoesNotBreakPreview: si ExplainImpact se cuelga más que el
-// timeout del enriquecimiento, el preview igual devuelve token + affected_rows.
-// Usamos un timeout de enriquecimiento corto vía el propio context del fake, que
-// respeta la cancelación; el preview no se bloquea.
+// TestPreviewIATimeoutDoesNotBreakPreview: si ExplainImpact tarda y su context
+// se cancela por el timeout del enriquecimiento, el preview igual devuelve token
+// + affected_rows. Simulamos el timeout con un explainWait mayor que el propio
+// context del enriquecimiento: el fake respeta ctx.Done() y devuelve un error de
+// deadline, que el servicio absorbe (no lo propaga al preview).
 func TestPreviewIATimeoutDoesNotBreakPreview(t *testing.T) {
 	f := &fakeAI{
 		enabled:     true,
-		explainWait: 2 * time.Second, // más largo que cualquier deadline razonable del test
+		explainWait: 30 * time.Second, // no llega a cumplirse: ctx se cancela antes
 		explainText: "no debería llegar",
 		explainRisk: ai.RiskLow,
 	}
+	// aiPreviewTimeout (15s) es demasiado largo para un test; lo acortamos en
+	// caliente para forzar la cancelación del enriquecimiento rápido, sin esperar.
+	restore := aiPreviewTimeoutForTest(50 * time.Millisecond)
+	defer restore()
+
 	srv := newAITestServer(t, &fakeEngine{affected: 1}, f)
 
-	// El preview corre con el aiPreviewTimeout interno; para que el test no
-	// espere 2s reales, acotamos el request del lado del cliente. Pero el punto
-	// es que el preview NO propague el error: usamos un client con timeout que
-	// deje correr el enriquecimiento hasta que su propio context lo cancele.
-	// Como aiPreviewTimeout (15s) es mayor que explainWait (2s), acá validamos
-	// que aun tardando, el preview responde con token; el aislamiento se prueba
-	// más fuerte en el caso de error de arriba.
-	done := make(chan struct{})
-	var status int
-	var body map[string]any
-	go func() {
-		status, body = postJSON(t, srv.URL+"/preview",
-			`{"sql":"UPDATE CollectionBox SET status = 1 WHERE id = 42"}`)
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("el preview no respondió: la IA lo bloqueó (aislamiento roto)")
-	}
+	start := time.Now()
+	status, body := postJSON(t, srv.URL+"/preview",
+		`{"sql":"UPDATE CollectionBox SET status = 1 WHERE id = 42"}`)
+	elapsed := time.Since(start)
+
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, body = %v", status, body)
 	}
 	if body["token"] == nil || body["token"] == "" {
-		t.Fatalf("preview sin token: %v", body)
+		t.Fatalf("preview sin token pese a timeout de IA: %v", body)
+	}
+	if got := body["affected_rows"]; got != float64(1) {
+		t.Fatalf("affected_rows = %v, want 1", got)
+	}
+	// El preview no debió bloquearse los 30s del fake: cortó por el timeout del
+	// enriquecimiento (con amplio margen para la lentitud del CI).
+	if elapsed > 5*time.Second {
+		t.Fatalf("el preview tardó %v: la IA lo bloqueó (aislamiento roto)", elapsed)
 	}
 }
 

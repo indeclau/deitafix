@@ -194,11 +194,10 @@ func riskRank(r ai.RiskLevel) int {
 	}
 }
 
-// Timeouts de la capa de IA, independientes del timeout de la base.
-const (
-	// schemaTimeout acota la introspección de esquema para NL → SQL.
-	schemaTimeout = 3 * time.Second
-	// aiPreviewTimeout acota el enriquecimiento de IA en el preview. El propio
-	// cliente de IA también aplica su AI_TIMEOUT; gana el más corto.
-	aiPreviewTimeout = 15 * time.Second
-)
+// schemaTimeout acota la introspección de esquema para NL → SQL.
+const schemaTimeout = 3 * time.Second
+
+// aiPreviewTimeout acota el enriquecimiento de IA en el preview. El propio
+// cliente de IA también aplica su AI_TIMEOUT; gana el más corto. Es var (no
+// const) para poder acortarlo en tests y forzar la ruta de timeout sin esperar.
+var aiPreviewTimeout = 15 * time.Second
