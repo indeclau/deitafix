@@ -199,20 +199,27 @@ func TestParsersRejectBypasses(t *testing.T) {
 				if err != nil {
 					t.Fatalf("parse(%q) error inesperado = %v", tc.sql, err)
 				}
-				if got.Op != tc.wantStmt.Op {
-					t.Errorf("Op = %q, want %q", got.Op, tc.wantStmt.Op)
-				}
-				if got.Table != tc.wantStmt.Table {
-					t.Errorf("Table = %q, want %q", got.Table, tc.wantStmt.Table)
-				}
-				if got.HasWhere != tc.wantStmt.HasWhere {
-					t.Errorf("HasWhere = %v, want %v", got.HasWhere, tc.wantStmt.HasWhere)
-				}
-				if got.InsertFromSelect != tc.wantStmt.InsertFromSelect {
-					t.Errorf("InsertFromSelect = %v, want %v", got.InsertFromSelect, tc.wantStmt.InsertFromSelect)
-				}
+				assertStatement(t, got, tc.wantStmt)
 			})
 		}
+	}
+}
+
+// assertStatement compara campo a campo el Statement parseado contra el esperado.
+// Extraído para mantener baja la complejidad del cuerpo del test.
+func assertStatement(t *testing.T, got, want guard.Statement) {
+	t.Helper()
+	if got.Op != want.Op {
+		t.Errorf("Op = %q, want %q", got.Op, want.Op)
+	}
+	if got.Table != want.Table {
+		t.Errorf("Table = %q, want %q", got.Table, want.Table)
+	}
+	if got.HasWhere != want.HasWhere {
+		t.Errorf("HasWhere = %v, want %v", got.HasWhere, want.HasWhere)
+	}
+	if got.InsertFromSelect != want.InsertFromSelect {
+		t.Errorf("InsertFromSelect = %v, want %v", got.InsertFromSelect, want.InsertFromSelect)
 	}
 }
 
@@ -288,26 +295,32 @@ func TestCheckerOnParsed(t *testing.T) {
 	for _, engine := range bothParsers() {
 		for _, tc := range cases {
 			t.Run(engine.name+"/"+tc.name, func(t *testing.T) {
-				stmt, err := engine.parse(tc.sql)
-				if err != nil {
-					// Un error de parseo también es un rechazo válido, salvo que
-					// esperáramos aceptar la sentencia.
-					if tc.wantErr == nil {
-						t.Fatalf("parse(%q) error inesperado = %v", tc.sql, err)
-					}
-					return
-				}
-				gotErr := guard.Check(stmt, whitelist)
-				if tc.wantErr == nil {
-					if gotErr != nil {
-						t.Fatalf("Check rechazó una sentencia legítima: %v (sql=%q)", gotErr, tc.sql)
-					}
-					return
-				}
-				if !errors.Is(gotErr, tc.wantErr) {
-					t.Fatalf("Check(%q) = %v, want %v", tc.sql, gotErr, tc.wantErr)
-				}
+				assertCheckVerdict(t, engine.parse, tc.sql, whitelist, tc.wantErr)
 			})
 		}
+	}
+}
+
+// assertCheckVerdict corre parser -> guard.Check y verifica el veredicto final.
+// Un error de parseo cuenta como rechazo válido (salvo que se esperara aceptar).
+// Extraído para mantener baja la complejidad del cuerpo del test.
+func assertCheckVerdict(t *testing.T, parse func(string) (guard.Statement, error), sql string, whitelist []string, wantErr error) {
+	t.Helper()
+	stmt, err := parse(sql)
+	if err != nil {
+		if wantErr == nil {
+			t.Fatalf("parse(%q) error inesperado = %v", sql, err)
+		}
+		return
+	}
+	gotErr := guard.Check(stmt, whitelist)
+	if wantErr == nil {
+		if gotErr != nil {
+			t.Fatalf("Check rechazó una sentencia legítima: %v (sql=%q)", gotErr, sql)
+		}
+		return
+	}
+	if !errors.Is(gotErr, wantErr) {
+		t.Fatalf("Check(%q) = %v, want %v", sql, gotErr, wantErr)
 	}
 }

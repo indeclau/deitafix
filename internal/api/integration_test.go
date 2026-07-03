@@ -190,9 +190,11 @@ func TestPreviewConfirmIntegration(t *testing.T) {
 			// caso, NO debe haber persistido: la tabla sigue existiendo.
 		}
 
-		// La tabla objetivo debe seguir existiendo tras los DDL negados.
-		if n := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s", fx.tbl)); n == 0 {
-			t.Fatalf("la tabla quedó vacía o desaparecida tras los DDL: se esperaba que el motor los negara")
+		// La tabla objetivo debe seguir existiendo (con sus filas) tras los DDL
+		// negados: si el motor los hubiera dejado pasar, el COUNT fallaría o daría 0.
+		rows := fx.adminQuery(t, fmt.Sprintf("SELECT COUNT(*) FROM %s", fx.tbl))
+		if rows == 0 {
+			t.Fatal("la tabla quedó vacía o desaparecida tras los DDL: se esperaba que el motor los negara")
 		}
 	})
 
