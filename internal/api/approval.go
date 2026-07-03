@@ -46,8 +46,13 @@ func (c *mcpCore) PreviewMCP(ctx context.Context, rawSQL string, op *mcp.Bounded
 	if err != nil {
 		return mcp.PreviewResult{}, err
 	}
-	// api.PreviewResult y mcp.PreviewResult tienen los mismos campos: conversión directa.
-	return mcp.PreviewResult(res), nil
+	// api.PreviewResult incluye el enriquecimiento de IA (campo AI), que la capa
+	// MCP a propósito no expone: la conversión es explícita y descarta ese campo.
+	return mcp.PreviewResult{
+		Token:        res.Token,
+		AffectedRows: res.AffectedRows,
+		Summary:      res.Summary,
+	}, nil
 }
 
 func (c *mcpCore) RequestApproval(ctx context.Context, token string) error {
