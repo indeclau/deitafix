@@ -1,0 +1,87 @@
+# deployment.yaml — despliega Deitafix en un cluster.
+#
+# La imagen se publica al taggear (ver .github/workflows/release.yml). Ajustá el
+# tag a la versión que quieras desplegar (evitá :latest en producción para tener
+# despliegues reproducibles).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deitafix
+  labels:
+    app.kubernetes.io/name: deitafix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deitafix
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deitafix
+    spec:
+      # A nivel Pod: nunca root. El uid 65532 es el usuario nonroot de la imagen
+      # distroless.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: deitafix
+          # <owner> en minúscula. Fijá una versión concreta al desplegar.
+          image: ghcr.io/indeclau/deitafix:v0.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Secretos (usuario restringido / API key de IA).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: deitafix-secrets
+                  key: DATABASE_URL
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: deitafix-secrets
+                  key: AI_API_KEY
+                  optional: true
+            # Configuración no sensible, directa (podría ir en un ConfigMap).
+            - name: DEITAFIX_ENGINE
+              value: "postgres"
+            - name: DATAFIX_ENABLED
+              value: "true"
+            - name: MAX_AFFECTED_ROWS
+              value: "50"
+            - name: TABLE_WHITELIST
+              value: "CollectionBox"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+          # A nivel contenedor: FS raíz de solo lectura (el estado vive en
+          # memoria), sin escalada de privilegios, sin capabilities.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
