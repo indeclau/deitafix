@@ -34,7 +34,7 @@ type Handler struct {
 
 // RouterConfig son las opciones para construir el router, más allá del servicio.
 type RouterConfig struct {
-	// Enabled es el feature flag maestro (DATAFIX_ENABLED): si es false, las
+	// Enabled es el feature flag maestro (DEITAFIX_ENABLED): si es false, las
 	// rutas de escritura responden 503 sin tocar la base.
 	Enabled bool
 
@@ -343,7 +343,7 @@ func (h *Handler) requireEnabled(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !h.enabled {
 			writeError(w, http.StatusServiceUnavailable,
-				errors.New("api: servicio deshabilitado (DATAFIX_ENABLED=false)"))
+				errors.New("api: servicio deshabilitado (DEITAFIX_ENABLED=false)"))
 			return
 		}
 		next.ServeHTTP(w, r)

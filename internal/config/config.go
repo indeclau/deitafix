@@ -36,7 +36,7 @@ type Config struct {
 	// Valores válidos: "postgres" | "mysql".
 	Engine string
 
-	// Enabled es el feature flag maestro (DATAFIX_ENABLED). Si es false, el
+	// Enabled es el feature flag maestro (DEITAFIX_ENABLED). Si es false, el
 	// servicio arranca pero responde 503 a las rutas de escritura.
 	Enabled bool
 
@@ -107,7 +107,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		Engine:          strings.ToLower(strings.TrimSpace(os.Getenv("DEITAFIX_ENGINE"))),
-		Enabled:         parseBool(os.Getenv("DATAFIX_ENABLED")),
+		Enabled:         parseBool(os.Getenv("DEITAFIX_ENABLED")),
 		MaxAffectedRows: defaultMaxAffectedRows,
 		Port:            defaultPort,
 	}
@@ -156,7 +156,7 @@ func Load() (Config, error) {
 
 // loadAI lee y valida la configuración de la capa de IA.
 //
-// Degradación limpia, consistente con DATAFIX_ENABLED / MCP_ENABLED: si no hay
+// Degradación limpia, consistente con DEITAFIX_ENABLED / MCP_ENABLED: si no hay
 // AI_API_KEY, la capa queda apagada y el resto del servicio intacto (sin
 // endpoints IA rotos, sin logs en loop). A diferencia de MCP, la ausencia de
 // clave NO es un error: es el modo degradado esperado. Solo se falla el arranque
@@ -184,7 +184,7 @@ func loadAI(cfg *Config) error {
 
 // loadMCP lee y valida la configuración de la capa MCP.
 //
-// Degradación limpia, consistente con DATAFIX_ENABLED / AI_API_KEY: si
+// Degradación limpia, consistente con DEITAFIX_ENABLED / AI_API_KEY: si
 // MCP_ENABLED es false, la capa queda apagada y el resto del servicio intacto.
 // Pero si está habilitada SIN token, se aborta el arranque con un error claro:
 // un endpoint MCP sin auth sería un agujero, así que se falla rápido en vez de

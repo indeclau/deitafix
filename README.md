@@ -90,9 +90,9 @@ La imagen se publica en GHCR al taggear una versión. Corré la última así (Po
 ```powershell
 docker run --rm `
   -p 8080:8080 `
-  -e DATABASE_URL="postgres://prod_datafix:CAMBIAR@host:5432/midb" `
+  -e DATABASE_URL="postgres://prod_deitafix:CAMBIAR@host:5432/midb" `
   -e DEITAFIX_ENGINE="postgres" `
-  -e DATAFIX_ENABLED="true" `
+  -e DEITAFIX_ENABLED="true" `
   -e MAX_AFFECTED_ROWS="50" `
   -e TABLE_WHITELIST="CollectionBox" `
   ghcr.io/indeclau/deitafix:latest
@@ -127,7 +127,7 @@ Los errores de guardas (p. ej. `DELETE` sin `WHERE`, tope de filas superado, tab
 |---|---|
 | `DATABASE_URL` | Conexión con el usuario **restringido** (nunca el de la app) |
 | `DEITAFIX_ENGINE` | Motor: `postgres` \| `mysql`. Si se omite, se infiere de `DATABASE_URL` |
-| `DATAFIX_ENABLED` | Feature flag. `false` deja el servicio apagado |
+| `DEITAFIX_ENABLED` | Feature flag. `false` deja el servicio apagado |
 | `MAX_AFFECTED_ROWS` | Tope de filas; si se supera, aborta |
 | `TABLE_WHITELIST` | Tablas permitidas, separadas por coma (además de la contención en la base) |
 | `MCP_ENABLED` | *(Opcional)* habilita la capa MCP (endpoint `/mcp`). Ver [docs/mcp.md](docs/mcp.md) |
@@ -243,11 +243,11 @@ Flujo del agente: llama a `preview` (mismas guardas, mide impacto) → llama a `
 La pieza más importante vive en la base, no en el código. Ejemplo PostgreSQL:
 
 ```sql
-CREATE USER prod_datafix WITH PASSWORD 'CAMBIAR_password_fuerte';
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM prod_datafix;
-GRANT USAGE ON SCHEMA public TO prod_datafix;
+CREATE USER prod_deitafix WITH PASSWORD 'CAMBIAR_password_fuerte';
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM prod_deitafix;
+GRANT USAGE ON SCHEMA public TO prod_deitafix;
 -- Whitelist explícita, una tabla por vez:
-GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_datafix;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_deitafix;
 ```
 
 **Whitelist, nunca blacklist.** Nombrás una por una las tablas que se pueden tocar. Sin DDL, sin `DROP`, sin `TRUNCATE`.
@@ -323,8 +323,8 @@ Para regenerarlo:
 
 # 2. Levantá el stack de desarrollo y el servicio en localhost:8080.
 docker compose up -d
-$env:DATABASE_URL   = "postgres://prod_datafix:dev_datafix_pw@localhost:5432/deitafix_dev"
-$env:DATAFIX_ENABLED = "true"
+$env:DATABASE_URL   = "postgres://prod_deitafix:dev_deitafix_pw@localhost:5432/deitafix_dev"
+$env:DEITAFIX_ENABLED = "true"
 $env:TABLE_WHITELIST = "CollectionBox"
 go run ./cmd/deitafix   # en otra terminal
 

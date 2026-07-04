@@ -13,6 +13,24 @@ seguridad de las guardas, cobertura de tests sólida y documentación completa. 
 partir de este tag, los identificadores públicos (variables de entorno, contrato
 de la API) son **estables**.
 
+### ⚠️ BREAKING CHANGES
+
+Se normalizaron los identificadores al nombre del proyecto (`deitafix`) **antes**
+de que 1.0 los volviera contrato estable. Si venís de una versión previa, al
+actualizar tenés que ajustar:
+
+- **Variable de entorno**: `DATAFIX_ENABLED` → **`DEITAFIX_ENABLED`**. El nombre
+  viejo ya no se lee; si no la renombrás, el servicio queda apagado (default
+  seguro).
+- **Usuario de base de ejemplo**: `prod_datafix` → **`prod_deitafix`** (y la
+  password de desarrollo `dev_datafix_pw` → **`dev_deitafix_pw`**). Afecta los
+  seeds, `docker-compose.yml`, los manifiestos K8s y tu `DATABASE_URL`. Si ya
+  tenés un usuario `prod_datafix` creado, podés mantenerlo y solo apuntar la
+  `DATABASE_URL` a él, o recrearlo con el nombre nuevo.
+
+No cambió el contrato de la API ni el comportamiento: es puramente un renombrado
+de identificadores para que 1.0 salga coherente.
+
 ### Added
 
 - **Modelo de amenazas documentado** ([`docs/SECURITY.md`](docs/SECURITY.md)):

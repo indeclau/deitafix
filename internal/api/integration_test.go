@@ -27,8 +27,8 @@ import (
 
 // Credenciales del usuario restringido, replicando el seed de docker-compose.
 const (
-	restrictedUser = "prod_datafix"
-	restrictedPass = "dev_datafix_pw"
+	restrictedUser = "prod_deitafix"
+	restrictedPass = "dev_deitafix_pw"
 )
 
 // engineFixture es lo que necesita el suite de integración: la connection

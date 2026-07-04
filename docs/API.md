@@ -43,7 +43,7 @@ probes.
   campo que no esté en el contrato (un typo, un campo de más) hace que el
   request falle con **`400`**, en vez de ignorarlo en silencio. Esto es
   especialmente relevante en `/confirm` (ver más abajo).
-- **Feature flag maestro**: si `DATAFIX_ENABLED` no está en un valor afirmativo
+- **Feature flag maestro**: si `DEITAFIX_ENABLED` no está en un valor afirmativo
   (`1`, `true`, `yes`, `on`), las rutas de escritura (`/preview`, `/confirm`,
   `/ai/suggest`, `/pending*`) responden **`503`** sin tocar la base. Las probes
   (`/healthz`, `/readyz`) siguen respondiendo.
@@ -184,7 +184,7 @@ Cuando no hay IA, el campo `ai` es explícitamente `null` (no se omite):
 | `200` | Preview exitoso. |
 | `400` | Input vacío (ni `sql` ni `operation`); input ambiguo (ambos); JSON inválido o con campo desconocido; `operation.op` distinto de `UPDATE`/`DELETE`; SQL vacío o no parseable. |
 | `422` | Rechazo de guarda: `UPDATE`/`DELETE` sin `WHERE`; tabla fuera de la whitelist; tope de filas afectadas excedido (`MAX_AFFECTED_ROWS`); operación no permitida (p. ej. `SELECT`/DDL/`DROP`/`TRUNCATE`/multi-statement); `INSERT ... SELECT`. |
-| `503` | Servicio deshabilitado (`DATAFIX_ENABLED=false`). |
+| `503` | Servicio deshabilitado (`DEITAFIX_ENABLED=false`). |
 | `401` | Falta o es incorrecto el bearer, si `UI_AUTH_TOKEN` está seteado. |
 
 > Los rechazos de guarda son **`422`** a propósito: el request es sintácticamente
@@ -259,7 +259,7 @@ token se invalida al recuperarlo, aunque la ejecución falle.
 | `400` | Falta `token` (vacío o ausente); JSON inválido; **cualquier campo desconocido** (incl. `sql`). |
 | `404` | Token inexistente, expirado o ya usado. |
 | `409` | El token es de origen `mcp` y requiere aprobación humana (no se ejecuta por `confirm`); o el token está en un estado incorrecto para esta acción. |
-| `503` | Servicio deshabilitado (`DATAFIX_ENABLED=false`). |
+| `503` | Servicio deshabilitado (`DEITAFIX_ENABLED=false`). |
 | `401` | Falta o es incorrecto el bearer, si `UI_AUTH_TOKEN` está seteado. |
 
 > Un token creado por el agente (`origin=mcp`) **no** se ejecuta por esta vía: da
@@ -328,7 +328,7 @@ confirmarse.
 | `200` | Candidato generado. |
 | `400` | Falta `intent` (vacío o solo espacios); JSON inválido o con campo desconocido. |
 | `503` | La capa de IA está deshabilitada (no hay `AI_API_KEY`). Degradación limpia, **no** `500`. |
-| `503` | Servicio deshabilitado (`DATAFIX_ENABLED=false`). |
+| `503` | Servicio deshabilitado (`DEITAFIX_ENABLED=false`). |
 | `401` | Falta o es incorrecto el bearer, si `UI_AUTH_TOKEN` está seteado. |
 
 > Si no hay `AI_API_KEY` configurada, la respuesta es un **`503`** limpio (la IA
@@ -425,7 +425,7 @@ Response `200`:
 | `400` | Falta el `{token}` en la ruta (approve / reject). |
 | `404` | Token inexistente, expirado o ya usado. |
 | `409` | Token en estado incorrecto (p. ej. no está `pending_approval`). |
-| `503` | Servicio deshabilitado (`DATAFIX_ENABLED=false`). |
+| `503` | Servicio deshabilitado (`DEITAFIX_ENABLED=false`). |
 | `401` | Falta o es incorrecto el bearer, si `UI_AUTH_TOKEN` está seteado. |
 
 ### Ejemplo (PowerShell)
@@ -449,7 +449,7 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8080/pending/$token/reject
 
 ## Probes: `/healthz` y `/readyz`
 
-Ambas son públicas (sin auth) y **no** dependen de `DATAFIX_ENABLED`. Están
+Ambas son públicas (sin auth) y **no** dependen de `DEITAFIX_ENABLED`. Están
 pensadas para orquestadores (Kubernetes, etc.).
 
 ### `GET /healthz` — liveness
@@ -497,7 +497,7 @@ Invoke-RestMethod -Method Get -Uri "http://localhost:8080/readyz"
 | `404` | Not Found | Token inexistente, expirado o ya usado (`/confirm`, `/pending/{token}/…`). |
 | `409` | Conflict | Token `origin=mcp` enviado a `/confirm` (requiere aprobación humana); token en estado incorrecto para la acción (p. ej. aprobar algo que no está pendiente). |
 | `422` | Unprocessable Entity | Rechazo de guarda en `/preview`: `UPDATE`/`DELETE` sin `WHERE`, tabla fuera de whitelist, tope de filas excedido, operación no permitida (`SELECT`/DDL/`DROP`/`TRUNCATE`/multi-statement), `INSERT ... SELECT`. |
-| `503` | Service Unavailable | `DATAFIX_ENABLED=false` (rutas de escritura); `/readyz` sin conexión a la base; `/ai/suggest` sin `AI_API_KEY` (IA deshabilitada). |
+| `503` | Service Unavailable | `DEITAFIX_ENABLED=false` (rutas de escritura); `/readyz` sin conexión a la base; `/ai/suggest` sin `AI_API_KEY` (IA deshabilitada). |
 | `500` | Internal Server Error | Error inesperado no clasificado (fallo del motor, etc.). |
 
 ---
