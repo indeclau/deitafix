@@ -310,3 +310,33 @@ func TestMySQLPreservesIdentifierCasing(t *testing.T) {
 		t.Fatalf("MySQL: Table = %q, want %q (casing preservado)", stmt.Table, "CollectionBox")
 	}
 }
+
+// TestMySQLTableResolution cubre la resolución de la tabla objetivo en el árbol
+// de joins de TiDB (firstTableName / resolveTableName). Son casos de seguridad:
+// en un UPDATE con JOIN la tabla objetivo es la de más a la izquierda, y una
+// fuente que no es una tabla simple (subconsulta) devuelve "" para que el
+// checker la rechace por whitelist.
+func TestMySQLTableResolution(t *testing.T) {
+	t.Run("UPDATE con JOIN: la tabla objetivo es la de más a la izquierda", func(t *testing.T) {
+		stmt, err := parseMySQL("UPDATE t1 JOIN t2 ON t1.id = t2.id SET t1.x = 1 WHERE t1.id = 5")
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if stmt.Table != "t1" {
+			t.Fatalf("Table = %q, want t1 (la más a la izquierda del join)", stmt.Table)
+		}
+	})
+
+	t.Run("DELETE con subconsulta como fuente devuelve tabla vacía", func(t *testing.T) {
+		// DELETE con la tabla resuelta desde una derivada no es una tabla simple:
+		// firstTableName devuelve "", y el checker lo rechaza por whitelist.
+		stmt, err := parseMySQL("DELETE t FROM (SELECT id FROM collectionbox) AS t WHERE t.id = 1")
+		if err != nil {
+			// TiDB puede rechazar esta forma directamente; también es un rechazo válido.
+			return
+		}
+		if stmt.Table != "" && stmt.Table != "t" {
+			t.Fatalf("Table = %q; se esperaba vacío o el alias, nunca una tabla real whitelisteable", stmt.Table)
+		}
+	})
+}

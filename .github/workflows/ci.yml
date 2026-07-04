@@ -51,8 +51,63 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
-      - name: go test
-        run: go test -race -count=1 ./...
+      - name: go test (con cobertura)
+        # -coverpkg=./internal/... hace que la cobertura de CADA paquete de test
+        # (incluida la integracion, que vive en internal/api) cuente sobre TODO el
+        # core. Sin esto, los metodos DB-facing de internal/engine (ejercitados por
+        # la integracion) figurarian sin cubrir.
+        run: go test -race -count=1 -coverpkg=./internal/... -coverprofile=coverage-${{ matrix.engine }}.out ./...
+      - name: Resumen de cobertura del motor
+        if: always()
+        run: |
+          pct=$(go tool cover -func=coverage-${{ matrix.engine }}.out | tail -1 | awk '{print $NF}')
+          echo "### Cobertura (${{ matrix.engine }}): $pct" >> "$GITHUB_STEP_SUMMARY"
+      - name: Subir perfil de cobertura
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-${{ matrix.engine }}
+          path: coverage-${{ matrix.engine }}.out
+          retention-days: 7
+
+  coverage:
+    name: Cobertura combinada
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Descargar perfiles de ambos motores
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - name: Combinar y verificar umbral
+        # gocovmerge une los perfiles de postgres + mysql: el numero combinado es
+        # la cobertura REAL del core (cada motor cubre su propio codigo). Se exige
+        # un minimo del 80% sobre internal/... y se publica el total y el desglose
+        # por paquete en el resumen del job.
+        env:
+          MIN_COVERAGE: "80.0"
+        run: |
+          go install github.com/wadey/gocovmerge@b5bfa59ec0adc420475f97f89b58045c721d761c
+          gocovmerge coverage-postgres.out coverage-mysql.out > coverage-merged.out
+          total=$(go tool cover -func=coverage-merged.out | tail -1 | awk '{gsub(/%/,"",$NF); print $NF}')
+          {
+            echo "## Cobertura combinada (postgres + mysql)"
+            echo ""
+            echo "**Total del core (\`internal/...\`): ${total}%** (minimo exigido: ${MIN_COVERAGE}%)"
+            echo ""
+            echo "| Paquete | Cobertura |"
+            echo "|---------|-----------|"
+            for pkg in guard store engine config api mcp ai ui; do
+              p=$(go tool cover -func=coverage-merged.out | grep "internal/$pkg/" | awk '{gsub(/%/,"",$NF); s+=$NF; n++} END{if(n>0) printf "%.1f", s/n; else printf "n/a"}')
+              echo "| internal/$pkg | ${p}% |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          awk -v t="$total" -v m="$MIN_COVERAGE" 'BEGIN{ if (t+0 < m+0) { printf "Cobertura %.1f%% < minimo %.1f%%\n", t, m; exit 1 } else { printf "Cobertura %.1f%% OK (>= %.1f%%)\n", t, m } }'
 
   build:
     name: Build
