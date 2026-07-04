@@ -4,7 +4,9 @@
 package store
 
 import (
+	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -98,6 +100,58 @@ func TestTokensAreUnique(t *testing.T) {
 		}
 		seen[token] = true
 	}
+}
+
+// TestTokenEntropyAndFormat fija las propiedades del token que lo hacen no
+// adivinable: formato hexadecimal de 32 caracteres (128 bits de crypto/rand),
+// decodificable como hex, y sin patrón secuencial entre tokens consecutivos.
+// La unicidad ya la cubre TestTokensAreUnique; acá verificamos la CALIDAD de la
+// aleatoriedad, que es lo que impide enumerar o adivinar tokens.
+func TestTokenEntropyAndFormat(t *testing.T) {
+	s, _ := newTestStore(time.Minute)
+
+	const want = 32 // 16 bytes en hex
+	var prev string
+	for i := 0; i < 50; i++ {
+		token, err := s.Put(Entry{SQL: "x"})
+		if err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+
+		// Longitud exacta: 128 bits en hex.
+		if len(token) != want {
+			t.Fatalf("token %q: longitud %d, want %d", token, len(token), want)
+		}
+
+		// Solo dígitos hex en minúscula: decodifica limpio y sin sorpresas.
+		if _, err := hex.DecodeString(token); err != nil {
+			t.Fatalf("token %q no es hex válido: %v", token, err)
+		}
+		if token != strings.ToLower(token) {
+			t.Fatalf("token %q tiene mayúsculas; se espera hex en minúscula", token)
+		}
+
+		// Nada de secuencialidad: dos tokens consecutivos deben diferir por
+		// completo, no incrementarse. Con 128 bits reales la probabilidad de
+		// prefijo compartido largo es ínfima; exigimos que no sean iguales ni
+		// compartan un prefijo sospechosamente largo.
+		if token == prev {
+			t.Fatalf("token repetido de forma consecutiva: %q", token)
+		}
+		if prev != "" && commonPrefixLen(token, prev) > 8 {
+			t.Fatalf("tokens consecutivos comparten prefijo largo (%q, %q): posible secuencialidad", prev, token)
+		}
+		prev = token
+	}
+}
+
+// commonPrefixLen devuelve la longitud del prefijo común entre dos cadenas.
+func commonPrefixLen(a, b string) int {
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n
 }
 
 // --- Origin y máquina de estados (flujo MCP) ---
