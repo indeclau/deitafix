@@ -240,6 +240,21 @@ Para llegar a un hito usable sin construir todo de golpe:
 
 ---
 
+## Documentación
+
+| Documento | Qué cubre |
+|-----------|-----------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Diseño del flujo preview→confirm, capas de seguridad y dónde vive el estado. |
+| [docs/API.md](docs/API.md) | Contrato HTTP: `/preview`, `/confirm`, `/ai/suggest`, aprobaciones, health. |
+| [docs/RESTRICTED-USER.md](docs/RESTRICTED-USER.md) | Setup del usuario restringido paso a paso (Postgres y MySQL/MariaDB). |
+| [docs/SECURITY.md](docs/SECURITY.md) | Modelo de amenazas: qué ataque mitiga cada capa. |
+| [SECURITY.md](SECURITY.md) | Política de reporte de vulnerabilidades. |
+| [docs/mcp.md](docs/mcp.md) | Conexión MCP y aprobación humana forzada. |
+| [docs/AI.md](docs/AI.md) | Capa de IA: NL→SQL, explicación de impacto, revisor, degradación limpia. |
+| [CHANGELOG.md](CHANGELOG.md) | Historial de versiones (Keep a Changelog + SemVer). |
+
+---
+
 ## Contribuir
 
 Las contribuciones son bienvenidas. Abrí un issue para discutir cambios grandes antes de un PR.
