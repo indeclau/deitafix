@@ -1,8 +1,18 @@
 # Deitafix
 
+[![CI](https://github.com/indeclau/deitafix/actions/workflows/ci.yml/badge.svg)](https://github.com/indeclau/deitafix/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/indeclau/deitafix)](https://goreportcard.com/report/github.com/indeclau/deitafix)
+[![Docker Image](https://img.shields.io/badge/ghcr.io-indeclau%2Fdeitafix-2496ED?logo=docker&logoColor=white)](https://github.com/indeclau/deitafix/pkgs/container/deitafix)
+
 Un servicio open-source y self-hosted para ejecutar **escrituras ocasionales sobre una base de datos de producción** (`UPDATE` / `DELETE` / `INSERT`) de forma segura, con un flujo **preview → confirm** donde nada se ejecuta a ciegas.
 
 Pensado como punto único y controlado para reemplazar el "conectarse directo con credenciales a producción", con salvaguardas a nivel motor y una capa de IA/agéntica opcional.
+
+![Demo del flujo preview → confirm](docs/demo.gif)
+
+> El GIF se genera de forma reproducible con [vhs](https://github.com/charmbracelet/vhs) a partir de [`docs/demo.tape`](docs/demo.tape). Ver [cómo regenerarlo](#regenerar-el-gif-de-demo).
 
 ---
 
@@ -148,6 +158,34 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/confirm `
   -Body (@{ token = $preview.token } | ConvertTo-Json)
 ```
 
+### Modo operación acotada (sin escribir SQL)
+
+El segundo modo de entrada: en vez de SQL crudo, describís la operación de forma estructurada (`op` + `table` + `set` + `where`) y el servicio la traduce a SQL parametrizado con identificadores citados. Pasa por las **mismas** guardas y el mismo `preview → confirm`.
+
+```powershell
+# Preview de una operación acotada (UPDATE): equivale a
+#   UPDATE "CollectionBox" SET status = 1 WHERE id = 42
+$body = @{
+  operation = @{
+    op    = "UPDATE"
+    table = "CollectionBox"
+    set   = @{ status = 1 }
+    where = @{ id = 42 }
+  }
+} | ConvertTo-Json -Depth 5
+
+$preview = Invoke-RestMethod -Method Post -Uri http://localhost:8080/preview `
+  -ContentType "application/json" -Body $body
+$preview.affected_rows   # p. ej. 1
+
+# Confirm con el token (idéntico al modo SQL crudo).
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/confirm `
+  -ContentType "application/json" `
+  -Body (@{ token = $preview.token } | ConvertTo-Json)
+```
+
+> Una operación acotada **nunca** puede quedar sin `WHERE`: `where` es obligatorio. Es el modo recomendado para clientes programáticos, porque no hay SQL que escapar.
+
 ### Ejemplo de uso (capa de IA)
 
 Con `AI_API_KEY` configurada. El flujo es: **describir la intención → obtener el SQL candidato → previsualizarlo (pasa por las guardas) → confirmar (humano)**.
@@ -179,6 +217,24 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/confirm `
 ```
 
 > Para omitir el enriquecimiento de IA en un preview puntual (no pagar latencia/costo), mandá `"ai": false` en el body de `/preview`. Sin `AI_API_KEY`, `/ai/suggest` responde `503` y `/preview` devuelve `"ai": null`, con todo lo demás intacto.
+
+### Ejemplo de uso vía MCP (agente de IA)
+
+Con `MCP_ENABLED=true` y `MCP_AUTH_TOKEN`, un agente se conecta al endpoint `/mcp` y usa las herramientas `preview` y `confirm`. Clave: el `confirm` del agente **no ejecuta** — solo **solicita** aprobación humana. Ejecutar sigue siendo de una persona (forzado a nivel servidor).
+
+```jsonc
+// Configuración típica de un cliente MCP (p. ej. Claude Desktop):
+{
+  "mcpServers": {
+    "deitafix": {
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer <MCP_AUTH_TOKEN>" }
+    }
+  }
+}
+```
+
+Flujo del agente: llama a `preview` (mismas guardas, mide impacto) → llama a `confirm` (que **solicita** aprobación y devuelve una URL) → un humano aprueba en `/pending`. Detalle completo en **[docs/mcp.md](docs/mcp.md)**.
 
 ---
 
@@ -252,6 +308,31 @@ Para llegar a un hito usable sin construir todo de golpe:
 | [docs/mcp.md](docs/mcp.md) | Conexión MCP y aprobación humana forzada. |
 | [docs/AI.md](docs/AI.md) | Capa de IA: NL→SQL, explicación de impacto, revisor, degradación limpia. |
 | [CHANGELOG.md](CHANGELOG.md) | Historial de versiones (Keep a Changelog + SemVer). |
+
+---
+
+## Regenerar el GIF de demo
+
+El GIF del inicio ([`docs/demo.gif`](docs/demo.gif)) se genera de forma **reproducible** con [vhs](https://github.com/charmbracelet/vhs) a partir de [`docs/demo.tape`](docs/demo.tape) —así el mismo script produce siempre el mismo GIF, sin capturas manuales—.
+
+Para regenerarlo:
+
+```powershell
+# 1. Instalá vhs (ver https://github.com/charmbracelet/vhs#installation).
+#    En Windows: winget install charmbracelet.vhs   (o scoop/choco)
+
+# 2. Levantá el stack de desarrollo y el servicio en localhost:8080.
+docker compose up -d
+$env:DATABASE_URL   = "postgres://prod_datafix:dev_datafix_pw@localhost:5432/deitafix_dev"
+$env:DATAFIX_ENABLED = "true"
+$env:TABLE_WHITELIST = "CollectionBox"
+go run ./cmd/deitafix   # en otra terminal
+
+# 3. Renderizá el GIF (desde la raíz del repo).
+vhs docs/demo.tape       # escribe docs/demo.gif
+```
+
+El `.tape` está comentado con estos mismos pasos. El GIF **no** se versiona como binario generado a mano: se produce siempre desde el `.tape`.
 
 ---
 
