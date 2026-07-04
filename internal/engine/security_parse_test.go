@@ -16,8 +16,8 @@ import (
 // la sentencia llegue siquiera a tocar la base.
 //
 // Cada caso se ejecuta contra AMBOS parsers salvo que sea específico de un
-// dialecto. Se afirma sobre el guard.Statement resultante (o el error), no sobre
-// texto: es exactamente lo que el checker (guard.Check) consume después.
+// dialecto, y verifica en un solo lugar tanto la clasificación del parser
+// (guard.Statement) como el veredicto final del checker (guard.Check).
 //
 // Nota sobre el casing de la tabla: PostgreSQL "foldea" los identificadores sin
 // comillas a minúscula (CollectionBox -> collectionbox); MySQL/MariaDB los
@@ -25,8 +25,10 @@ import (
 // usa una tabla en minúscula (collectionbox), que matchea el folding de Postgres
 // y una whitelist en minúscula. El folding en sí se fija aparte, en
 // TestPostgresFoldsUnquotedIdentifiers, por ser una propiedad de seguridad
-// relevante (la whitelist debe escribirse coherente con cómo cada motor
-// normaliza el nombre).
+// relevante.
+
+// whitelistForTests es la whitelist usada por el checker en estos tests.
+var whitelistForTests = []string{"collectionbox"}
 
 // parseFn empareja un nombre de motor con su parser package-level.
 type parseFn struct {
@@ -43,185 +45,196 @@ func bothParsers() []parseFn {
 	}
 }
 
-// securityCase describe una sentencia de entrada y lo que se espera del parseo.
+// securityCase describe una sentencia de entrada y todo lo que se espera de ella:
+// la clasificación del parser y el veredicto del checker.
 type securityCase struct {
 	name string
 	sql  string
 
-	// wantErr, si no es nil, es el error centinela que se espera (se compara con
-	// errors.Is). Si es nil, se espera un parseo exitoso que produce wantStmt.
-	wantErr error
+	// wantParseErr, si no es nil, es el error centinela de parseo esperado (se
+	// compara con errors.Is). Si es nil, se espera un parseo exitoso -> wantStmt.
+	wantParseErr error
 
-	// wantStmt es el Statement esperado cuando wantErr es nil. Se compara campo a
-	// campo (Op, Table, HasWhere, InsertFromSelect).
+	// wantStmt es el Statement esperado cuando wantParseErr es nil.
 	wantStmt guard.Statement
 
-	// onlyEngine, si no está vacío, restringe el caso a un solo motor (para SQL
-	// específico de un dialecto, p.ej. WHERE true de Postgres).
+	// wantCheckErr es el veredicto esperado de guard.Check sobre el Statement:
+	// nil = aceptado. Solo se evalúa cuando el parseo fue exitoso.
+	wantCheckErr error
+
+	// onlyEngine, si no está vacío, restringe el caso a un solo motor (SQL de un
+	// dialecto puntual, p.ej. WHERE true de Postgres).
 	onlyEngine string
 }
 
-// TestParsersRejectBypasses recorre los bypasses conocidos y verifica que cada
-// parser real los clasifica de forma que el checker los rechace, o que produce
-// exactamente el Statement esperado cuando la sentencia es legítima.
-func TestParsersRejectBypasses(t *testing.T) {
-	cases := []securityCase{
-		// --- UPDATE/DELETE sin WHERE ---
-		// El parser marca HasWhere=false; el checker lo rechaza con ErrMissingWhere.
+// securityCases son los bypasses conocidos y las sentencias legítimas, con su
+// comportamiento esperado de parseo y de checker, para ambos motores.
+func securityCases() []securityCase {
+	return []securityCase{
+		// --- UPDATE/DELETE sin WHERE: el parser ve HasWhere=false; el checker rechaza. ---
 		{
-			name:     "UPDATE sin WHERE",
-			sql:      "UPDATE collectionbox SET amount = 0",
-			wantStmt: guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: false},
+			name:         "UPDATE sin WHERE",
+			sql:          "UPDATE collectionbox SET amount = 0",
+			wantStmt:     guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: false},
+			wantCheckErr: guard.ErrMissingWhere,
 		},
 		{
-			name:     "DELETE sin WHERE",
-			sql:      "DELETE FROM collectionbox",
-			wantStmt: guard.Statement{Op: guard.OpDelete, Table: "collectionbox", HasWhere: false},
-		},
-
-		// --- Comentarios que ocultan la intención ---
-		// Un WHERE comentado NO es un WHERE: el parser real ve que no existe.
-		{
-			name:     "WHERE comentado con -- no cuenta como WHERE",
-			sql:      "UPDATE collectionbox SET amount = 0 -- WHERE id = 1",
-			wantStmt: guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: false},
-		},
-		{
-			name:     "WHERE comentado con /* */ no cuenta como WHERE",
-			sql:      "DELETE FROM collectionbox /* WHERE id = 1 */",
-			wantStmt: guard.Statement{Op: guard.OpDelete, Table: "collectionbox", HasWhere: false},
-		},
-		{
-			name:     "comentario embebido no oculta la ausencia de WHERE",
-			sql:      "UPDATE /* sneaky */ collectionbox SET amount = 0",
-			wantStmt: guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: false},
+			name:         "DELETE sin WHERE",
+			sql:          "DELETE FROM collectionbox",
+			wantStmt:     guard.Statement{Op: guard.OpDelete, Table: "collectionbox", HasWhere: false},
+			wantCheckErr: guard.ErrMissingWhere,
 		},
 
-		// --- Múltiples sentencias (stacking) ---
-		// El parser cuenta las sentencias del árbol: más de una => rechazo.
-		// Inmune a comentarios que intenten esconder el ';'.
+		// --- Comentarios que ocultan la intención: un WHERE comentado NO es un WHERE. ---
 		{
-			name:    "dos sentencias con ; se rechazan",
-			sql:     "UPDATE collectionbox SET amount = 0 WHERE id = 1; DELETE FROM collectionbox",
-			wantErr: guard.ErrMultipleStatements,
+			name:         "WHERE comentado con -- no cuenta como WHERE",
+			sql:          "UPDATE collectionbox SET amount = 0 -- WHERE id = 1",
+			wantStmt:     guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: false},
+			wantCheckErr: guard.ErrMissingWhere,
 		},
 		{
-			name:    "segunda sentencia tras un comentario se rechaza",
-			sql:     "UPDATE collectionbox SET amount = 0 WHERE id = 1; -- inocente\nDROP TABLE collectionbox",
-			wantErr: guard.ErrMultipleStatements,
-		},
-
-		// --- DDL / DROP / TRUNCATE / SELECT ---
-		// No son UPDATE/DELETE/INSERT: el parser los marca como operación no
-		// soportada (unsupportedOp) para que el checker los rechace.
-		{
-			name:     "DROP TABLE es operación no soportada",
-			sql:      "DROP TABLE collectionbox",
-			wantStmt: guard.Statement{Op: unsupportedOp},
+			name:         "WHERE comentado con /* */ no cuenta como WHERE",
+			sql:          "DELETE FROM collectionbox /* WHERE id = 1 */",
+			wantStmt:     guard.Statement{Op: guard.OpDelete, Table: "collectionbox", HasWhere: false},
+			wantCheckErr: guard.ErrMissingWhere,
 		},
 		{
-			name:     "TRUNCATE es operación no soportada",
-			sql:      "TRUNCATE TABLE collectionbox",
-			wantStmt: guard.Statement{Op: unsupportedOp},
-		},
-		{
-			name:     "ALTER TABLE es operación no soportada",
-			sql:      "ALTER TABLE collectionbox ADD COLUMN x int",
-			wantStmt: guard.Statement{Op: unsupportedOp},
-		},
-		{
-			name:     "SELECT es operación no soportada",
-			sql:      "SELECT * FROM collectionbox",
-			wantStmt: guard.Statement{Op: unsupportedOp},
+			name:         "comentario embebido no oculta la ausencia de WHERE",
+			sql:          "UPDATE /* sneaky */ collectionbox SET amount = 0",
+			wantStmt:     guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: false},
+			wantCheckErr: guard.ErrMissingWhere,
 		},
 
-		// --- INSERT: solo VALUES ---
+		// --- Múltiples sentencias (stacking): el parser cuenta > 1 y rechaza. ---
 		{
-			name:     "INSERT ... VALUES es válido",
-			sql:      "INSERT INTO collectionbox (amount) VALUES (10)",
-			wantStmt: guard.Statement{Op: guard.OpInsert, Table: "collectionbox", InsertFromSelect: false},
+			name:         "dos sentencias con ; se rechazan",
+			sql:          "UPDATE collectionbox SET amount = 0 WHERE id = 1; DELETE FROM collectionbox",
+			wantParseErr: guard.ErrMultipleStatements,
 		},
 		{
-			name:     "INSERT ... SELECT se marca como FromSelect",
-			sql:      "INSERT INTO collectionbox (amount) SELECT amount FROM collectionbox",
-			wantStmt: guard.Statement{Op: guard.OpInsert, Table: "collectionbox", InsertFromSelect: true},
-		},
-
-		// --- WHERE 1=1 / true (política: se permite; la red es el tope de filas) ---
-		// El parser SÍ ve un WHERE (HasWhere=true). No intentamos detectar
-		// tautologías por sintaxis: MAX_AFFECTED_ROWS es la salvaguarda real.
-		{
-			name:     "WHERE 1=1 es un WHERE válido a nivel parseo",
-			sql:      "UPDATE collectionbox SET amount = 0 WHERE 1=1",
-			wantStmt: guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: true},
-		},
-		{
-			name:       "WHERE true es un WHERE válido a nivel parseo (postgres)",
-			sql:        "UPDATE collectionbox SET amount = 0 WHERE true",
-			wantStmt:   guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: true},
-			onlyEngine: "postgres",
+			name:         "segunda sentencia tras un comentario se rechaza",
+			sql:          "UPDATE collectionbox SET amount = 0 WHERE id = 1; -- inocente\nDROP TABLE collectionbox",
+			wantParseErr: guard.ErrMultipleStatements,
 		},
 
-		// --- Subqueries en WHERE (política: se permiten) ---
-		// Es un WHERE legítimo; el tope de filas y el usuario restringido acotan el
-		// daño. La subquery solo lee tablas que el usuario ya puede ver.
+		// --- DDL / DROP / TRUNCATE / SELECT: operación no soportada. ---
 		{
-			name:     "subquery en WHERE es un WHERE válido",
-			sql:      "DELETE FROM collectionbox WHERE id IN (SELECT id FROM collectionbox WHERE amount = 0)",
-			wantStmt: guard.Statement{Op: guard.OpDelete, Table: "collectionbox", HasWhere: true},
+			name:         "DROP TABLE es operación no soportada",
+			sql:          "DROP TABLE collectionbox",
+			wantStmt:     guard.Statement{Op: unsupportedOp},
+			wantCheckErr: guard.ErrOperationNotAllowed,
+		},
+		{
+			name:         "TRUNCATE es operación no soportada",
+			sql:          "TRUNCATE TABLE collectionbox",
+			wantStmt:     guard.Statement{Op: unsupportedOp},
+			wantCheckErr: guard.ErrOperationNotAllowed,
+		},
+		{
+			name:         "ALTER TABLE es operación no soportada",
+			sql:          "ALTER TABLE collectionbox ADD COLUMN x int",
+			wantStmt:     guard.Statement{Op: unsupportedOp},
+			wantCheckErr: guard.ErrOperationNotAllowed,
+		},
+		{
+			name:         "SELECT es operación no soportada",
+			sql:          "SELECT * FROM collectionbox",
+			wantStmt:     guard.Statement{Op: unsupportedOp},
+			wantCheckErr: guard.ErrOperationNotAllowed,
 		},
 
-		// --- CTE (WITH ... UPDATE) ---
-		// La tabla objetivo del UPDATE/DELETE es la del propio UPDATE/DELETE, NO la
-		// del CTE. El checker la valida contra la whitelist. El CTE auxiliar solo
-		// lee. Este caso fija que la tabla objetivo se extrae correctamente y no la
-		// del WITH.
+		// --- INSERT: solo VALUES. ---
 		{
-			name:     "CTE con UPDATE: la tabla objetivo es la del UPDATE",
-			sql:      "WITH x AS (SELECT id FROM collectionbox WHERE amount = 0) UPDATE collectionbox SET amount = 1 WHERE id IN (SELECT id FROM x)",
-			wantStmt: guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: true},
+			name:         "INSERT ... VALUES es válido",
+			sql:          "INSERT INTO collectionbox (amount) VALUES (10)",
+			wantStmt:     guard.Statement{Op: guard.OpInsert, Table: "collectionbox", InsertFromSelect: false},
+			wantCheckErr: nil,
+		},
+		{
+			name:         "INSERT ... SELECT se rechaza",
+			sql:          "INSERT INTO collectionbox (amount) SELECT amount FROM collectionbox",
+			wantStmt:     guard.Statement{Op: guard.OpInsert, Table: "collectionbox", InsertFromSelect: true},
+			wantCheckErr: guard.ErrInsertFromSelect,
+		},
+
+		// --- WHERE 1=1 / true: política = permitido; la red es el tope de filas. ---
+		{
+			name:         "WHERE 1=1 es un WHERE válido y se acepta",
+			sql:          "UPDATE collectionbox SET amount = 0 WHERE 1=1",
+			wantStmt:     guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: true},
+			wantCheckErr: nil,
+		},
+		{
+			name:         "WHERE true es un WHERE válido (postgres)",
+			sql:          "UPDATE collectionbox SET amount = 0 WHERE true",
+			wantStmt:     guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: true},
+			wantCheckErr: nil,
+			onlyEngine:   "postgres",
+		},
+
+		// --- Subquery en WHERE: política = permitido. ---
+		{
+			name:         "subquery en WHERE es un WHERE válido y se acepta",
+			sql:          "DELETE FROM collectionbox WHERE id IN (SELECT id FROM collectionbox WHERE amount = 0)",
+			wantStmt:     guard.Statement{Op: guard.OpDelete, Table: "collectionbox", HasWhere: true},
+			wantCheckErr: nil,
+		},
+
+		// --- CTE (WITH ... UPDATE): la tabla objetivo es la del UPDATE, no la del CTE. ---
+		{
+			name:         "CTE con UPDATE: la tabla objetivo es la del UPDATE y se acepta",
+			sql:          "WITH x AS (SELECT id FROM collectionbox WHERE amount = 0) UPDATE collectionbox SET amount = 1 WHERE id IN (SELECT id FROM x)",
+			wantStmt:     guard.Statement{Op: guard.OpUpdate, Table: "collectionbox", HasWhere: true},
+			wantCheckErr: nil,
+		},
+
+		// --- Tabla fuera de whitelist: parsea bien, pero el checker la rechaza. ---
+		{
+			name:         "tabla fuera de whitelist se rechaza",
+			sql:          "DELETE FROM secrets WHERE id = 1",
+			wantStmt:     guard.Statement{Op: guard.OpDelete, Table: "secrets", HasWhere: true},
+			wantCheckErr: guard.ErrTableNotWhitelisted,
 		},
 	}
-
-	runForBothParsers(t, func(t *testing.T, engine parseFn) {
-		for _, tc := range cases {
-			if tc.onlyEngine != "" && tc.onlyEngine != engine.name {
-				continue
-			}
-			t.Run(tc.name, func(t *testing.T) {
-				checkParsedStatement(t, engine.parse, tc)
-			})
-		}
-	})
 }
 
-// runForBothParsers ejecuta fn una vez por cada parser real, bajo un subtest con
-// el nombre del motor. Centraliza el recorrido de motores para que los tests no
-// dupliquen la estructura del doble loop.
-func runForBothParsers(t *testing.T, fn func(t *testing.T, engine parseFn)) {
-	t.Helper()
+// TestParserSecurity recorre los bypasses conocidos y sentencias legítimas y
+// verifica, para cada parser real, tanto la clasificación (guard.Statement) como
+// el veredicto final del checker (guard.Check). Es la prueba end-to-end de la
+// guarda de sentencia, sin base de datos.
+func TestParserSecurity(t *testing.T) {
 	for _, engine := range bothParsers() {
 		t.Run(engine.name, func(t *testing.T) {
-			fn(t, engine)
+			for _, tc := range securityCases() {
+				if tc.onlyEngine != "" && tc.onlyEngine != engine.name {
+					continue
+				}
+				t.Run(tc.name, func(t *testing.T) {
+					verifySecurityCase(t, engine.parse, tc)
+				})
+			}
 		})
 	}
 }
 
-// checkParsedStatement parsea el SQL del caso y verifica el error o el Statement
-// esperado. Extraído para mantener baja la complejidad del cuerpo del test.
-func checkParsedStatement(t *testing.T, parse func(string) (guard.Statement, error), tc securityCase) {
+// verifySecurityCase corre parser + checker sobre un caso y verifica ambos
+// resultados. Extraído para mantener baja la complejidad del cuerpo del test.
+func verifySecurityCase(t *testing.T, parse func(string) (guard.Statement, error), tc securityCase) {
 	t.Helper()
-	got, err := parse(tc.sql)
-	if tc.wantErr != nil {
-		if !errors.Is(err, tc.wantErr) {
-			t.Fatalf("parse(%q) error = %v, want %v", tc.sql, err, tc.wantErr)
+
+	stmt, err := parse(tc.sql)
+	if tc.wantParseErr != nil {
+		if !errors.Is(err, tc.wantParseErr) {
+			t.Fatalf("parse(%q) error = %v, want %v", tc.sql, err, tc.wantParseErr)
 		}
 		return
 	}
 	if err != nil {
 		t.Fatalf("parse(%q) error inesperado = %v", tc.sql, err)
 	}
-	assertStatement(t, got, tc.wantStmt)
+
+	assertStatement(t, stmt, tc.wantStmt)
+	assertCheckVerdict(t, stmt, tc.wantCheckErr)
 }
 
 // assertStatement compara campo a campo el Statement parseado contra el esperado.
@@ -238,6 +251,22 @@ func assertStatement(t *testing.T, got, want guard.Statement) {
 	}
 	if got.InsertFromSelect != want.InsertFromSelect {
 		t.Errorf("InsertFromSelect = %v, want %v", got.InsertFromSelect, want.InsertFromSelect)
+	}
+}
+
+// assertCheckVerdict verifica el veredicto de guard.Check sobre el Statement:
+// wantErr nil = aceptado.
+func assertCheckVerdict(t *testing.T, stmt guard.Statement, wantErr error) {
+	t.Helper()
+	gotErr := guard.Check(stmt, whitelistForTests)
+	if wantErr == nil {
+		if gotErr != nil {
+			t.Fatalf("Check rechazó una sentencia legítima: %v (op=%q table=%q)", gotErr, stmt.Op, stmt.Table)
+		}
+		return
+	}
+	if !errors.Is(gotErr, wantErr) {
+		t.Fatalf("Check(op=%q table=%q) = %v, want %v", stmt.Op, stmt.Table, gotErr, wantErr)
 	}
 }
 
@@ -279,66 +308,5 @@ func TestMySQLPreservesIdentifierCasing(t *testing.T) {
 	}
 	if stmt.Table != "CollectionBox" {
 		t.Fatalf("MySQL: Table = %q, want %q (casing preservado)", stmt.Table, "CollectionBox")
-	}
-}
-
-// TestCheckerOnParsed cierra el lazo: toma el Statement que produce el parser
-// real y lo pasa por guard.Check con una whitelist realista, verificando el
-// veredicto final (aceptar/rechazar) que ve el usuario. Es la prueba end-to-end
-// de la guarda de sentencia, sin base de datos.
-//
-// Se usa la tabla en minúscula (collectionbox) para que el caso sea determinista
-// en ambos motores (ver la nota de casing arriba).
-func TestCheckerOnParsed(t *testing.T) {
-	whitelist := []string{"collectionbox"}
-
-	cases := []struct {
-		name    string
-		sql     string
-		wantErr error // error final esperado de guard.Check (nil = aceptado)
-	}{
-		{"UPDATE sin WHERE se rechaza", "UPDATE collectionbox SET amount = 0", guard.ErrMissingWhere},
-		{"DELETE sin WHERE se rechaza", "DELETE FROM collectionbox", guard.ErrMissingWhere},
-		{"UPDATE con WHERE se acepta", "UPDATE collectionbox SET amount = 0 WHERE id = 1", nil},
-		{"WHERE comentado se rechaza (no hay WHERE real)", "UPDATE collectionbox SET amount = 0 -- WHERE id = 1", guard.ErrMissingWhere},
-		{"DROP se rechaza por operación", "DROP TABLE collectionbox", guard.ErrOperationNotAllowed},
-		{"TRUNCATE se rechaza por operación", "TRUNCATE TABLE collectionbox", guard.ErrOperationNotAllowed},
-		{"INSERT ... SELECT se rechaza", "INSERT INTO collectionbox (amount) SELECT amount FROM collectionbox", guard.ErrInsertFromSelect},
-		{"tabla fuera de whitelist se rechaza", "DELETE FROM secrets WHERE id = 1", guard.ErrTableNotWhitelisted},
-		{"WHERE 1=1 se acepta a nivel guarda (el tope de filas es la red)", "UPDATE collectionbox SET amount = 0 WHERE 1=1", nil},
-		{"subquery en WHERE se acepta", "DELETE FROM collectionbox WHERE id IN (SELECT id FROM collectionbox WHERE amount = 0)", nil},
-		{"CTE con UPDATE a tabla whitelisteada se acepta", "WITH x AS (SELECT id FROM collectionbox) UPDATE collectionbox SET amount = 1 WHERE id IN (SELECT id FROM x)", nil},
-	}
-
-	runForBothParsers(t, func(t *testing.T, engine parseFn) {
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				assertCheckVerdict(t, engine.parse, tc.sql, whitelist, tc.wantErr)
-			})
-		}
-	})
-}
-
-// assertCheckVerdict corre parser -> guard.Check y verifica el veredicto final.
-// Un error de parseo cuenta como rechazo válido (salvo que se esperara aceptar).
-// Extraído para mantener baja la complejidad del cuerpo del test.
-func assertCheckVerdict(t *testing.T, parse func(string) (guard.Statement, error), sql string, whitelist []string, wantErr error) {
-	t.Helper()
-	stmt, err := parse(sql)
-	if err != nil {
-		if wantErr == nil {
-			t.Fatalf("parse(%q) error inesperado = %v", sql, err)
-		}
-		return
-	}
-	gotErr := guard.Check(stmt, whitelist)
-	if wantErr == nil {
-		if gotErr != nil {
-			t.Fatalf("Check rechazó una sentencia legítima: %v (sql=%q)", gotErr, sql)
-		}
-		return
-	}
-	if !errors.Is(gotErr, wantErr) {
-		t.Fatalf("Check(%q) = %v, want %v", sql, gotErr, wantErr)
 	}
 }
