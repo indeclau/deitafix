@@ -276,14 +276,14 @@ separación sigue la dirección de las dependencias: el core seguro (`guard`,
 | [`internal/api`](../internal/api) | **Capa HTTP** y orquestación: `Service` (el flujo preview → confirm, gating por origen, aprobaciones) + `router.go` (rutas chi, contrato JSON, mapeo de errores → códigos). |
 | [`internal/mcp`](../internal/mcp) | Servidor **MCP** (Streamable HTTP): expone `preview` y **solicitar** confirmación como herramientas. Transporte fino sobre `Service`. |
 | [`internal/ai`](../internal/ai) | Capa de **IA** (opcional): cliente Anthropic + cliente *disabled* (noop) + prompts. Solo propone. |
-| [`internal/config`](../internal/config) | Carga y valida la **configuración** desde el entorno (`DATABASE_URL`, `DEITAFIX_ENGINE`, `DATAFIX_ENABLED`, `MAX_AFFECTED_ROWS`, whitelist, MCP, IA…). Falla rápido si falta lo obligatorio. |
+| [`internal/config`](../internal/config) | Carga y valida la **configuración** desde el entorno (`DATABASE_URL`, `DEITAFIX_ENGINE`, `DEITAFIX_ENABLED`, `MAX_AFFECTED_ROWS`, whitelist, MCP, IA…). Falla rápido si falta lo obligatorio. |
 | [`internal/ui`](../internal/ui) | **UI web** embebida (Alpine.js): la página de preview/confirm y la de aprobaciones pendientes. Recibe el motor real como indicador read-only. |
 
 ### Rutas (superficie HTTP)
 
 Registradas en [`internal/api/router.go`](../internal/api/router.go):
 
-| Ruta | Superficie | Feature flag `DATAFIX_ENABLED` |
+| Ruta | Superficie | Feature flag `DEITAFIX_ENABLED` |
 |------|-----------|-------------------------------|
 | `GET /healthz`, `GET /readyz` | Probes (liveness / readiness) | No (siempre responden) |
 | `/mcp` | MCP (agente), bearer `MCP_AUTH_TOKEN` | Sí |

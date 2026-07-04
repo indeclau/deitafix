@@ -55,7 +55,7 @@ spec:
             # Configuración no sensible, directa (podría ir en un ConfigMap).
             - name: DEITAFIX_ENGINE
               value: "postgres"
-            - name: DATAFIX_ENABLED
+            - name: DEITAFIX_ENABLED
               value: "true"
             - name: MAX_AFFECTED_ROWS
               value: "50"

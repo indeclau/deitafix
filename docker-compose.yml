@@ -1,7 +1,7 @@
 # docker-compose.yml
 # Entorno de DESARROLLO/TESTING local para Deitafix.
 # Levanta PostgreSQL y MariaDB con datos de seed y el usuario restringido
-# (prod_datafix) ya configurado, listo para probar el flujo preview -> confirm.
+# (prod_deitafix) ya configurado, listo para probar el flujo preview -> confirm.
 #
 # Uso:
 #   docker compose up -d

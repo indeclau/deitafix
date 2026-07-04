@@ -17,7 +17,7 @@ Flujo `preview → confirm` funcionando contra los dos motores, con las guardas 
 - [ ] `POST /preview`: parseo, validación, transacción + `ROLLBACK`, token en memoria con TTL
 - [ ] `POST /confirm`: solo token, ejecución + `COMMIT`, token de un solo uso
 - [ ] Dos modos de entrada: SQL crudo y operación acotada
-- [ ] Feature flag (`DATAFIX_ENABLED`) + config por entorno
+- [ ] Feature flag (`DEITAFIX_ENABLED`) + config por entorno
 - [ ] Tests unit (guardas, table-driven) + integración (testcontainers, incluido *permission denied* fuera de whitelist)
 - [ ] CI en verde (workflow ya definido)
 

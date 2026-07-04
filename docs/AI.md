@@ -136,7 +136,7 @@ y parsea la salida del modelo de forma defensiva.
 
 ## Degradación limpia sin `AI_API_KEY`
 
-La configuración de IA sigue el mismo criterio que `DATAFIX_ENABLED` /
+La configuración de IA sigue el mismo criterio que `DEITAFIX_ENABLED` /
 `MCP_ENABLED`: **si no hay `AI_API_KEY`, la capa queda apagada y el resto del
 servicio intacto.** A diferencia de MCP, la **ausencia de clave NO es un error**: es
 el modo degradado esperado.

@@ -8,8 +8,8 @@
 #   2. Levantar el stack de desarrollo (Postgres + MariaDB con seed) y el
 #      servicio en localhost:8080:
 #        docker compose up -d
-#        $env:DATABASE_URL = "postgres://prod_datafix:dev_datafix_pw@localhost:5432/deitafix_dev"
-#        $env:DATAFIX_ENABLED = "true"
+#        $env:DATABASE_URL = "postgres://prod_deitafix:dev_deitafix_pw@localhost:5432/deitafix_dev"
+#        $env:DEITAFIX_ENABLED = "true"
 #        $env:TABLE_WHITELIST = "CollectionBox"
 #        go run ./cmd/deitafix
 #   3. Renderizar el GIF (desde la raíz del repo):

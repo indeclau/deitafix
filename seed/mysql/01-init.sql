@@ -22,10 +22,10 @@ CREATE TABLE AuditSensitive (
 
 -- 2. Usuario restringido: la salvaguarda a nivel motor.
 -- (En MySQL/MariaDB no hay secuencias: AUTO_INCREMENT no requiere grant extra.)
-CREATE USER 'prod_datafix'@'%' IDENTIFIED BY 'dev_datafix_pw';
+CREATE USER 'prod_deitafix'@'%' IDENTIFIED BY 'dev_deitafix_pw';
 
 -- Whitelist EXPLICITA: solo esta tabla, solo datos. Sin DDL, sin DROP/TRUNCATE.
-GRANT SELECT, INSERT, UPDATE, DELETE ON deitafix_dev.CollectionBox TO 'prod_datafix'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON deitafix_dev.CollectionBox TO 'prod_deitafix'@'%';
 
 -- Deliberadamente NO se otorga nada sobre AuditSensitive.
 FLUSH PRIVILEGES;

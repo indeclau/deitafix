@@ -40,7 +40,7 @@ Este documento usa los nombres del setup real del repo
 
 | Cosa | Valor |
 |---|---|
-| Usuario restringido | `prod_datafix` |
+| Usuario restringido | `prod_deitafix` |
 | Password | *(placeholder)* `CAMBIAR` — **poné una password fuerte real** |
 | Tabla de la whitelist | `CollectionBox` |
 | Base | `deitafix_dev` |
@@ -59,20 +59,20 @@ las tablas de la whitelist (más la sequence de cada tabla con `SERIAL`).
 
 ```sql
 -- 1. Crear el usuario restringido con una password fuerte.
-CREATE USER prod_datafix WITH PASSWORD 'CAMBIAR';
+CREATE USER prod_deitafix WITH PASSWORD 'CAMBIAR';
 
 -- 2. Sacarle TODO por defecto: ninguna tabla, ni el schema.
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM prod_datafix;
-REVOKE ALL ON SCHEMA public FROM prod_datafix;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM prod_deitafix;
+REVOKE ALL ON SCHEMA public FROM prod_deitafix;
 
 -- 3. Puede "ver" el schema para resolver nombres de tabla (pero nada más).
-GRANT USAGE ON SCHEMA public TO prod_datafix;
+GRANT USAGE ON SCHEMA public TO prod_deitafix;
 
 -- 4. Whitelist EXPLÍCITA: solo esta tabla, solo datos. Sin DDL, sin DROP/TRUNCATE.
-GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_datafix;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_deitafix;
 
 -- 5. INSERT sobre una tabla con SERIAL necesita la secuencia del id autoincremental.
-GRANT USAGE, SELECT ON SEQUENCE "CollectionBox_id_seq" TO prod_datafix;
+GRANT USAGE, SELECT ON SEQUENCE "CollectionBox_id_seq" TO prod_deitafix;
 ```
 
 Punto por punto:
@@ -98,8 +98,8 @@ Para **cada tabla adicional** de la whitelist, repetí los pasos 4 y 5 (y el 5 s
 si esa tabla tiene una columna `SERIAL`):
 
 ```sql
-GRANT SELECT, INSERT, UPDATE, DELETE ON "OtraTabla" TO prod_datafix;
-GRANT USAGE, SELECT ON SEQUENCE "OtraTabla_id_seq" TO prod_datafix;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "OtraTabla" TO prod_deitafix;
+GRANT USAGE, SELECT ON SEQUENCE "OtraTabla_id_seq" TO prod_deitafix;
 ```
 
 ### El detalle del casing en Postgres
@@ -122,10 +122,10 @@ En este repo la tabla se creó con comillas (`"CollectionBox"`), así que:
 
 ```sql
 -- ✅ Correcto: comillas dobles, casing exacto.
-GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_datafix;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_deitafix;
 
 -- ❌ Mal: sin comillas, Postgres busca "collectionbox" (minúscula) y no existe.
-GRANT SELECT, INSERT, UPDATE, DELETE ON CollectionBox TO prod_datafix;
+GRANT SELECT, INSERT, UPDATE, DELETE ON CollectionBox TO prod_deitafix;
 ```
 
 Y en la configuración del servicio, la whitelist se compara **exacta y
@@ -151,11 +151,11 @@ otorgarle datos sobre cada tabla de la whitelist, calificando por base.
 
 ```sql
 -- 1. Crear el usuario restringido. '%' = puede conectarse desde cualquier host;
---    ajustá el host si tu red lo requiere (por ejemplo 'prod_datafix'@'10.0.%').
-CREATE USER 'prod_datafix'@'%' IDENTIFIED BY 'CAMBIAR';
+--    ajustá el host si tu red lo requiere (por ejemplo 'prod_deitafix'@'10.0.%').
+CREATE USER 'prod_deitafix'@'%' IDENTIFIED BY 'CAMBIAR';
 
 -- 2. Whitelist EXPLÍCITA: solo esta tabla, solo datos. Sin DDL, sin DROP/TRUNCATE.
-GRANT SELECT, INSERT, UPDATE, DELETE ON deitafix_dev.CollectionBox TO 'prod_datafix'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON deitafix_dev.CollectionBox TO 'prod_deitafix'@'%';
 
 -- 3. Aplicar los cambios de privilegios.
 FLUSH PRIVILEGES;
@@ -163,9 +163,9 @@ FLUSH PRIVILEGES;
 
 Punto por punto:
 
-- **`CREATE USER 'prod_datafix'@'%'`.** El `@'%'` es el host desde el que el usuario
+- **`CREATE USER 'prod_deitafix'@'%'`.** El `@'%'` es el host desde el que el usuario
   puede conectarse (`%` = cualquiera). Si tu servicio corre en una red conocida,
-  acotalo (por ejemplo `'prod_datafix'@'10.0.%'`) para reducir superficie.
+  acotalo (por ejemplo `'prod_deitafix'@'10.0.%'`) para reducir superficie.
 - **`GRANT ... ON deitafix_dev.CollectionBox`.** El grant se califica como
   `base.tabla`. Solo `SELECT/INSERT/UPDATE/DELETE`, solo sobre esa tabla de esa
   base. **No** uses `ON deitafix_dev.*` (eso otorgaría sobre *todas* las tablas de
@@ -176,7 +176,7 @@ Punto por punto:
 Para **cada tabla adicional** de la whitelist, repetí el `GRANT`:
 
 ```sql
-GRANT SELECT, INSERT, UPDATE, DELETE ON deitafix_dev.OtraTabla TO 'prod_datafix'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON deitafix_dev.OtraTabla TO 'prod_deitafix'@'%';
 ```
 
 ### Casing en MySQL/MariaDB
@@ -207,7 +207,7 @@ subtest *"defensa en profundidad: el usuario restringido no puede hacer DDL"*).
 
 ```powershell
 # Conectate con el usuario restringido (te va a pedir la password 'CAMBIAR').
-psql "postgres://prod_datafix@host:5432/deitafix_dev"
+psql "postgres://prod_deitafix@host:5432/deitafix_dev"
 ```
 
 ```sql
@@ -231,20 +231,20 @@ UPDATE "CollectionBox" SET status = 1 WHERE id = 1;
 
 ```powershell
 # Conectate con el usuario restringido.
-mysql -h host -u prod_datafix -p deitafix_dev
+mysql -h host -u prod_deitafix -p deitafix_dev
 ```
 
 ```sql
 -- DDL: el motor debe negarlo.
 DROP TABLE CollectionBox;
--- ERROR 1142 (42000): DROP command denied to user 'prod_datafix'@'...' for table 'CollectionBox'
+-- ERROR 1142 (42000): DROP command denied to user 'prod_deitafix'@'...' for table 'CollectionBox'
 
 TRUNCATE TABLE CollectionBox;
--- ERROR 1142 (42000): DROP command denied to user 'prod_datafix'@'...' for table 'CollectionBox'
+-- ERROR 1142 (42000): DROP command denied to user 'prod_deitafix'@'...' for table 'CollectionBox'
 
 -- Tabla FUERA de la whitelist: sin grant, el motor la niega.
 UPDATE AuditSensitive SET note = 'x' WHERE id = 1;
--- ERROR 1142 (42000): UPDATE command denied to user 'prod_datafix'@'...' for table 'AuditSensitive'
+-- ERROR 1142 (42000): UPDATE command denied to user 'prod_deitafix'@'...' for table 'AuditSensitive'
 
 -- Operación permitida: esta SÍ tiene que funcionar.
 UPDATE CollectionBox SET status = 1 WHERE id = 1;
@@ -272,7 +272,7 @@ postgres://<usuario>:<password>@<host>:<puerto>/<base>
 Con los valores de esta guía:
 
 ```powershell
-$env:DATABASE_URL = "postgres://prod_datafix:CAMBIAR@host:5432/deitafix_dev"
+$env:DATABASE_URL = "postgres://prod_deitafix:CAMBIAR@host:5432/deitafix_dev"
 ```
 
 ### MySQL / MariaDB
@@ -282,7 +282,7 @@ mysql://<usuario>:<password>@<host>:<puerto>/<base>
 ```
 
 ```powershell
-$env:DATABASE_URL = "mysql://prod_datafix:CAMBIAR@host:3306/deitafix_dev"
+$env:DATABASE_URL = "mysql://prod_deitafix:CAMBIAR@host:3306/deitafix_dev"
 ```
 
 > Si la password tiene caracteres especiales (`@`, `:`, `/`, `#`, etc.), hay que
@@ -295,9 +295,9 @@ Ejemplo completo pasándola al container (PowerShell, consistente con el
 ```powershell
 docker run --rm `
   -p 8080:8080 `
-  -e DATABASE_URL="postgres://prod_datafix:CAMBIAR@host:5432/deitafix_dev" `
+  -e DATABASE_URL="postgres://prod_deitafix:CAMBIAR@host:5432/deitafix_dev" `
   -e DEITAFIX_ENGINE="postgres" `
-  -e DATAFIX_ENABLED="true" `
+  -e DEITAFIX_ENABLED="true" `
   -e MAX_AFFECTED_ROWS="50" `
   -e TABLE_WHITELIST="CollectionBox" `
   ghcr.io/indeclau/deitafix:latest
@@ -326,7 +326,7 @@ La regla operativa:
 
 - **Un usuario para crear/migrar el schema** (owner o admin): se usa una vez, en el
   setup y las migraciones. **Nunca** es la `DATABASE_URL` del servicio corriendo.
-- **Un usuario restringido** (`prod_datafix`): el único que va en la `DATABASE_URL`
+- **Un usuario restringido** (`prod_deitafix`): el único que va en la `DATABASE_URL`
   del servicio en producción.
 
 Y, otra vez: la password va por **secret**, nunca hardcodeada en un archivo

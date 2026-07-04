@@ -14,16 +14,16 @@ import (
 func setEnv(t *testing.T, extra map[string]string) {
 	t.Helper()
 	base := map[string]string{
-		"DATABASE_URL":    "postgres://prod_datafix:pw@localhost:5432/db",
-		"DEITAFIX_ENGINE": "postgres",
-		"DATAFIX_ENABLED": "true",
+		"DATABASE_URL":     "postgres://prod_deitafix:pw@localhost:5432/db",
+		"DEITAFIX_ENGINE":  "postgres",
+		"DEITAFIX_ENABLED": "true",
 	}
 	for k, v := range extra {
 		base[k] = v
 	}
 	// Limpiar todas las claves relevantes primero para no heredar del entorno.
 	for _, k := range []string{
-		"DATABASE_URL", "DEITAFIX_ENGINE", "DATAFIX_ENABLED", "MAX_AFFECTED_ROWS",
+		"DATABASE_URL", "DEITAFIX_ENGINE", "DEITAFIX_ENABLED", "MAX_AFFECTED_ROWS",
 		"TABLE_WHITELIST", "PORT", "MCP_ENABLED", "MCP_AUTH_TOKEN", "MCP_PATH",
 		"MCP_APPROVAL_BASE_URL", "UI_AUTH_TOKEN",
 		"AI_API_KEY", "AI_MODEL", "AI_BASE_URL", "AI_TIMEOUT",

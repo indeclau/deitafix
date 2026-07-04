@@ -22,18 +22,18 @@ CREATE TABLE "AuditSensitive" (
 );
 
 -- 2. Usuario restringido: la salvaguarda a nivel motor.
-CREATE USER prod_datafix WITH PASSWORD 'dev_datafix_pw';
+CREATE USER prod_deitafix WITH PASSWORD 'dev_deitafix_pw';
 
 -- Sin permisos por defecto.
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM prod_datafix;
-REVOKE ALL ON SCHEMA public FROM prod_datafix;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM prod_deitafix;
+REVOKE ALL ON SCHEMA public FROM prod_deitafix;
 
 -- Puede "ver" el schema para resolver nombres de tabla.
-GRANT USAGE ON SCHEMA public TO prod_datafix;
+GRANT USAGE ON SCHEMA public TO prod_deitafix;
 
 -- Whitelist EXPLICITA: solo esta tabla, solo datos. Sin DDL, sin DROP/TRUNCATE.
-GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_datafix;
+GRANT SELECT, INSERT, UPDATE, DELETE ON "CollectionBox" TO prod_deitafix;
 -- INSERT necesita la secuencia del id autoincremental:
-GRANT USAGE, SELECT ON SEQUENCE "CollectionBox_id_seq" TO prod_datafix;
+GRANT USAGE, SELECT ON SEQUENCE "CollectionBox_id_seq" TO prod_deitafix;
 
 -- Deliberadamente NO se otorga nada sobre "AuditSensitive".

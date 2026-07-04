@@ -160,7 +160,7 @@ que volver a previsualizar.
 | `MCP_APPROVAL_BASE_URL` | Base pública (esquema + host + puerto) para la `approval_url` de la herramienta `confirm`. Si se omite, la URL es relativa (`/approvals`). |
 | `UI_AUTH_TOKEN` | *(Opcional, recomendado)* Bearer que protege la superficie humana; la credencial MCP no debe alcanzarla. |
 
-**Degradación limpia** (consistente con `DATAFIX_ENABLED` / `AI_API_KEY`): si
+**Degradación limpia** (consistente con `DEITAFIX_ENABLED` / `AI_API_KEY`): si
 `MCP_ENABLED=false` o falta `MCP_AUTH_TOKEN`, el endpoint MCP no se registra y el
 resto del servicio queda intacto. Si `MCP_ENABLED=true` **sin** token, el
 arranque aborta con un error claro (no se expone un endpoint MCP sin auth).
