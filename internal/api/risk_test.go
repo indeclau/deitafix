@@ -57,8 +57,11 @@ func TestCombineRisk(t *testing.T) {
 // TestRiskRank fija el orden total de los niveles de riesgo (low < medium < high),
 // incluido un valor desconocido que cae al piso.
 func TestRiskRank(t *testing.T) {
-	if !(riskRank(ai.RiskHigh) > riskRank(ai.RiskMedium) && riskRank(ai.RiskMedium) > riskRank(ai.RiskLow)) {
-		t.Fatal("el orden de riesgo debe ser high > medium > low")
+	if riskRank(ai.RiskHigh) <= riskRank(ai.RiskMedium) {
+		t.Fatal("high debe rankear por encima de medium")
+	}
+	if riskRank(ai.RiskMedium) <= riskRank(ai.RiskLow) {
+		t.Fatal("medium debe rankear por encima de low")
 	}
 	// Un RiskLevel no reconocido cae al piso (0), como low.
 	if riskRank(ai.RiskLevel("desconocido")) != riskRank(ai.RiskLow) {
